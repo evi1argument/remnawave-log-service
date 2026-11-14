@@ -36,13 +36,20 @@ marker=synthetic-user-journey-marker
 start_ns="$(date -d '1 minute ago' +%s%N)"
 printf '%s\n' "$marker" >> /var/log/remnanode/access.log
 found=false
-for _ in $(seq 1 60); do
-  if curl -fsSG --max-time 5 -H 'Cache-Control: no-cache' \
+for attempt in $(seq 1 60); do
+  if curl -fsSG --noproxy '*' --max-time 5 -H 'Cache-Control: no-cache' \
     --data-urlencode "start=$start_ns" --data-urlencode "end=$(date +%s%N)" \
     --data-urlencode 'query={service="xray",node="journey",stream="access"}' \
     http://127.0.0.1:3100/loki/api/v1/query_range |
       jq -e --arg marker "$marker" 'any(.data.result[]?.values[]?; .[1] == $marker)' >/dev/null; then
     found=true; break
+  fi
+  if [ "$attempt" = 5 ] || [ "$attempt" = 15 ]; then
+    echo "Checkpoint: query for logs and check distributor intake"
+    curl -fsSG --noproxy '*' --max-time 5 --data-urlencode 'query={service="xray"}' \
+      http://127.0.0.1:3100/loki/api/v1/query_range | jq -c '{status,streams:.data.result,ingester:.data.stats.ingester}' || true
+    curl -fsS --noproxy '*' --max-time 5 http://127.0.0.1:3100/metrics |
+      awk '/^loki_distributor_lines_received_total|^loki_discarded_samples_total/' || true
   fi
   sleep 2
 done
