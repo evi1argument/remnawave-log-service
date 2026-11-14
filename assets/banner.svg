@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+  <title id="title">Remnawave Log Service</title>
+  <desc id="desc">Collect, search and archive. VPN nodes connect to a central collector, with live search and encrypted archives.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#171b3c"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#60e5d2"/><stop offset="1" stop-color="#8b9cff"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity=".035"/></pattern>
+  </defs>
+  <rect x="1" y="1" width="1278" height="358" rx="24" fill="url(#bg)" stroke="#2a3454"/>
+  <rect x="1" y="1" width="1278" height="358" rx="24" fill="url(#grid)"/>
+  <rect x="56" y="44" width="270" height="28" rx="14" fill="#60e5d2" fill-opacity=".1" stroke="#60e5d2" stroke-opacity=".25"/>
+  <circle cx="74" cy="58" r="4" fill="#60e5d2"/>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text x="88" y="63" fill="#9ae9db" font-size="12" font-weight="600" letter-spacing="1.6">SELF-HOSTED · OPEN SOURCE</text>
+    <text x="56" y="139" fill="#f4f7ff" font-size="61" font-weight="750" letter-spacing="-2">REMNAWAVE</text>
+    <text x="56" y="205" fill="url(#accent)" font-size="61" font-weight="750" letter-spacing="-2">LOG SERVICE</text>
+    <text x="59" y="249" fill="#b0bbd3" font-size="23">Collect. Search. Archive.</text>
+    <text x="59" y="306" fill="#7584a4" font-size="14" letter-spacing="1">VECTOR  /  LOKI  /  GRAFANA  /  AGE</text>
+  </g>
+  <g fill="none" stroke="#56688f" stroke-width="2">
+    <path d="M761 100H804Q820 100 820 116V164H855"/>
+    <path d="M761 180H855"/>
+    <path d="M761 260H804Q820 260 820 244V196H855"/>
+    <path d="M981 164H1013Q1025 164 1025 152V116H1055"/>
+    <path d="M981 196H1013Q1025 196 1025 208V244H1055"/>
+  </g>
+  <g fill="#60e5d2"><circle cx="817" cy="180" r="4"/><circle cx="1025" cy="133" r="4"/><circle cx="1025" cy="226" r="4"/></g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif" text-anchor="middle">
+    <g fill="#141e35" stroke="#344664"><rect x="665" y="72" width="96" height="56" rx="12"/><rect x="665" y="152" width="96" height="56" rx="12"/><rect x="665" y="232" width="96" height="56" rx="12"/></g>
+    <g fill="#c0cce2" font-size="13" font-weight="600"><text x="713" y="105">NODE 01</text><text x="713" y="185">NODE 02</text><text x="713" y="265">NODE 03</text></g>
+    <rect x="855" y="122" width="126" height="116" rx="20" fill="#192c3e" stroke="#60e5d2" stroke-opacity=".65"/>
+    <g stroke="#60e5d2" stroke-width="3" stroke-linecap="round"><path d="M897 151H939M897 162H927M897 173H935"/></g>
+    <text x="918" y="207" fill="#d1fff4" font-size="12" font-weight="700" letter-spacing=".8">COLLECTOR</text>
+    <rect x="1055" y="80" width="156" height="72" rx="14" fill="#222440" stroke="#8496ff" stroke-opacity=".6"/>
+    <text x="1133" y="111" fill="#d2d8ff" font-size="14" font-weight="600">LIVE SEARCH</text><text x="1133" y="134" fill="#8c97bc" font-size="12">Loki + Grafana</text>
+    <rect x="1055" y="208" width="156" height="72" rx="14" fill="#152c32" stroke="#60e5d2" stroke-opacity=".5"/>
+    <text x="1133" y="239" fill="#c8f9ef" font-size="14" font-weight="600">ARCHIVE</text><text x="1133" y="262" fill="#81b6af" font-size="12">S3 · Drive · Local</text>
+  </g>
+</svg>

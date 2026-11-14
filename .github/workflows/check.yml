@@ -1,0 +1,23 @@
+name: Validate log service
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y psmisc age
+      - name: Shell syntax and archive regression tests
+        run: |
+          find . -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          sudo python3 -m unittest discover -s tests -v
+      - name: Isolated container configuration checks
+        run: bash scripts/check-configs.sh
+      - name: Synthetic end-to-end stack smoke test
+        run: sudo python3 tests/smoke_stack.py
+
+      - name: Fresh collector and node installation
+        run: sudo bash tests/install_journey.sh

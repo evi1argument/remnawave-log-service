@@ -1,0 +1,8 @@
+[Unit]
+Description=Archive log uploader (encrypt spool -> configured backend)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/logcollector/archive/archive-upload.sh

@@ -1,0 +1,37 @@
+data_dir: /vector-data
+
+# Агент на VPN-ноде: tail xray access/error -> агрегатор на коллекторе по TLS.
+# __NODE_NAME__ и __COLLECTOR_IP__ подставляет install-node.sh.
+sources:
+  access:
+    type: file
+    include: ["/var/log/remnanode/access.log"]
+  error:
+    type: file
+    include: ["/var/log/remnanode/error.log"]
+
+transforms:
+  meta:
+    type: remap
+    inputs: [access, error]
+    source: |
+      .node = "__NODE_NAME__"
+      .stream = if contains(string!(.file), "error.log") { "error" } else { "access" }
+
+sinks:
+  to_collector:
+    type: vector
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+    inputs: [meta]
+    address: "__COLLECTOR_IP__:6000"
+    tls:
+      enabled: true
+      ca_file: /tls/collector.crt
+      server_name: logcollector
+      verify_certificate: true
+      verify_hostname: true

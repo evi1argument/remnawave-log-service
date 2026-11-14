@@ -1,0 +1,11 @@
+[Unit]
+Description=Run archive log uploader on schedule
+
+[Timer]
+# install-collector.sh подставляет каденцию: hourly | daily | weekly (Вс 04:00 UTC)
+OnCalendar=__ONCALENDAR__
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+# секреты и ключи — НИКОГДА в репо
+collector/secrets/s3.env
+collector/secrets/archive.pub
+collector/archive/archive.conf
+collector/.env
+collector/vector/tls/
+**/key.pem
+**/cert.pem
+
+# рантайм-данные
+collector/spool/
+collector/archive/store/
+*.age
+*.tsv
+__pycache__/

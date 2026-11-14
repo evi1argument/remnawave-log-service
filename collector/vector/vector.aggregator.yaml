@@ -1,0 +1,73 @@
+data_dir: /vector-data
+
+sources:
+  # приём от агентов на нодах (Vector-to-Vector, TLS)
+  nodes:
+    type: vector
+    address: 0.0.0.0:6000
+    tls:
+      enabled: true
+      crt_file: /tls/cert.pem
+      key_file: /tls/key.pem
+  # локальные логи самой ноды-коллектора (если она одновременно и VPN-нода).
+  # Если коллектор — отдельный VPS без remnanode, удали local_access/local_error/local_meta
+  # и убери их из inputs у sinks ниже, а также mount /var/log/remnanode из compose.
+  local_access:
+    type: file
+    include: ["/self-logs/access.log"]
+  local_error:
+    type: file
+    include: ["/self-logs/error.log"]
+
+transforms:
+  local_meta:
+    type: remap
+    inputs: [local_access, local_error]
+    source: |
+      .node = "__COLLECTOR_NODE__"
+      .stream = if contains(string!(.file), "error.log") { "error" } else { "access" }
+
+  checked_nodes:
+    type: remap
+    inputs: [nodes]
+    drop_on_abort: true
+    source: |
+      node = string(.node) ?? ""
+      stream = string(.stream) ?? ""
+      if !match(node, r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') || !includes(["access", "error"], stream) {
+        abort
+      }
+
+sinks:
+  # 1) hot-поиск: Loki (метки node/service/stream)
+  loki:
+    type: loki
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+    inputs: [checked_nodes, local_meta]
+    endpoint: http://loki:3100
+    encoding:
+      codec: text
+    labels:
+      node: "{{ node }}"
+      service: xray
+      stream: "{{ stream }}"
+    out_of_order_action: accept
+  # 2) долгий архив: raw-текст в spool, почасовые файлы -> archive-upload -> выбранный бэкенд
+  spool:
+    type: file
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+    idle_timeout_secs: 30
+    inputs: [checked_nodes, local_meta]
+    path: "/spool/{{ node }}/%Y/%m/%d/%H.log"
+    encoding:
+      codec: text

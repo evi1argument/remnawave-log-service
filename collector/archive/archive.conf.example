@@ -1,0 +1,26 @@
+# Конфиг архивного аплоадера. Скопируй в archive.conf и заполни под свой бэкенд.
+# install-collector.sh генерит этот файл автоматически по ответам.
+
+BACKEND=s3                 # s3 | gdrive | local
+ENCRYPT=age                # age (рекомендуется) | none
+AGE_PUBKEY_FILE=/opt/logcollector/secrets/archive.pub
+SETTLED_MIN=65             # файл текущего часа ещё пишется — не трогаем (>N мин без изменений)
+# Архиватор перемещает кандидатов в spool/.archive-pending, проверяет fuser и
+# удаляет сегмент только после успешной загрузки. Очередь нельзя удалять при сбоях.
+# Новые ключи: raw/node/YYYY/MM/DD/HH.segment.<id>.<sha256>.log[.age].
+
+# ── BACKEND=s3 (AWS S3 / MinIO / Backblaze / Wasabi / Selectel / любое S3-совместимое) ──
+S3_ENDPOINT=https://s3.us-east-1.amazonaws.com   # свой endpoint провайдера
+S3_BUCKET=remnawave-logs
+S3_REGION=us-east-1
+S3_ENV=/opt/logcollector/secrets/s3.env          # файл с AWS_ACCESS_KEY_ID/SECRET/REGION (chmod 600)
+# Защита архива от удаления — Object Lock на бакете, выставляется один раз:
+#   APPLY_COMPLIANCE=yes ./install-collector.sh   (или s3api put-object-lock-configuration)
+
+# ── BACKEND=gdrive (rclone) ─────────────────────────────────────────────────────
+# rclone config  -> создай remote (тип drive), затем:
+RCLONE_REMOTE=gdrive:remnawave-logs          # remote:путь
+
+# ── BACKEND=local (каталог на коллекторе; забирай на ПК pull-to-pc.sh) ───────────
+LOCAL_DIR=/opt/logcollector/archive/store
+LOCAL_RETENTION_DAYS=180                       # 0 = не удалять

@@ -1,0 +1,13 @@
+[Unit]
+Description=Collector receiver firewall (DOCKER-USER allow-list for Vector :6000)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# переприменяет DOCKER-USER-правила по /opt/logcollector/allowed-nodes.txt после старта Docker
+ExecStart=/opt/logcollector/scripts/collector-firewall-apply.sh
+
+[Install]
+WantedBy=multi-user.target

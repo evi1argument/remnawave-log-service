@@ -1,0 +1,130 @@
+"""Linux Docker smoke test. Only synthetic logs; no published ports or real volumes."""
+import base64
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+import uuid
+
+REPO = Path(__file__).resolve().parents[1]
+ENV = dict(os.environ, GF_ADMIN_PASSWORD='smoke-only-password')
+
+
+def docker(*args):
+    return subprocess.check_output(['docker', *args], env=ENV, text=True).strip()
+
+
+def wait_for(callback, description, timeout=90):
+    deadline = time.monotonic() + timeout
+    error = None
+    while time.monotonic() < deadline:
+        try:
+            value = callback()
+            if value:
+                return value
+        except Exception as exc:
+            error = exc
+        time.sleep(1)
+    raise RuntimeError(f'Timeout waiting for {description}: {error}')
+
+
+def get(url, authenticated=False):
+    headers = {}
+    if authenticated:
+        headers['Authorization'] = 'Basic ' + base64.b64encode(
+            b'admin:smoke-only-password').decode()
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=3) as response:
+        return response.read()
+
+
+def main():
+    config = json.loads(docker('compose', '-f', str(REPO / 'collector/docker-compose.yml'),
+                               'config', '--format', 'json'))['services']
+    prefix = 'log-smoke-' + uuid.uuid4().hex[:10]
+    network = prefix + '-net'
+    containers = []
+    docker('network', 'create', '--internal', network)
+    try:
+        # /tmp is often a small tmpfs; the configured buffers require >1 GiB capacity.
+        with tempfile.TemporaryDirectory(prefix='log-service-smoke-', dir='/var/tmp') as tmp:
+            work = Path(tmp)
+            work.chmod(0o755)
+            for name in ['tls', 'loki', 'grafana', 'aggregator', 'agent', 'spool', 'self', 'logs']:
+                (work / name).mkdir(mode=0o777)
+                (work / name).chmod(0o777)
+            subprocess.run(['bash', str(REPO / 'scripts/gen-tls.sh'), str(work / 'tls')],
+                           check=True, capture_output=True)
+            (work / 'tls/key.pem').chmod(0o644)  # Disposable certificate only.
+            marker = prefix
+            (work / 'self/access.log').write_text(f'{marker} self\n')
+            (work / 'logs/access.log').write_text(f'{marker} agent\n')
+            (work / 'self/error.log').touch()
+            (work / 'logs/error.log').touch()
+            aggregator = (REPO / 'collector/vector/vector.aggregator.yaml').read_text()
+            (work / 'aggregator.yaml').write_text(aggregator.replace('__COLLECTOR_NODE__', 'smoke-self'))
+            agent = (REPO / 'node/vector/vector.agent.yaml').read_text()
+            (work / 'agent.yaml').write_text(agent.replace('__NODE_NAME__', 'smoke-agent')
+                                           .replace('__COLLECTOR_IP__', 'collector'))
+
+            def start(role, image, options=(), command=()):
+                name = prefix + '-' + role
+                containers.append(name)
+                docker('run', '-d', '--name', name, '--network', network,
+                       '--network-alias', role, *options, image, *command)
+                info = json.loads(docker('inspect', name))[0]
+                return info['NetworkSettings']['Networks'][network]['IPAddress']
+
+            def mount(source, target, readonly=False):
+                return ['-v', f'{source}:{target}' + (':ro' if readonly else '')]
+
+            loki_ip = start('loki', config['loki']['image'],
+                            mount(REPO / 'collector/loki/loki-config.yaml', '/etc/loki/config.yaml', True)
+                            + mount(work / 'loki', '/loki'), ['-config.file=/etc/loki/config.yaml'])
+            wait_for(lambda: get(f'http://{loki_ip}:3100/ready') == b'ready\n', 'Loki readiness')
+            start('collector', config['vector']['image'], ['--user', '0']
+                  + mount(work / 'aggregator.yaml', '/etc/vector/vector.yaml', True)
+                  + mount(work / 'tls', '/tls', True) + mount(work / 'aggregator', '/vector-data')
+                  + mount(work / 'spool', '/spool') + mount(work / 'self', '/self-logs', True))
+            start('agent', config['vector']['image'], ['--user', '0']
+                  + mount(work / 'agent.yaml', '/etc/vector/vector.yaml', True)
+                  + mount(work / 'tls/cert.pem', '/tls/collector.crt', True)
+                  + mount(work / 'agent', '/vector-data')
+                  + mount(work / 'logs', '/var/log/remnanode', True))
+            query = urllib.parse.urlencode({'query': f'{{service="xray"}} |= "{marker}"', 'limit': '10'})
+
+            def delivered():
+                result = json.loads(get(f'http://{loki_ip}:3100/loki/api/v1/query_range?{query}'))
+                nodes = {s['stream']['node'] for s in result['data']['result']}
+                return {'smoke-self', 'smoke-agent'} <= nodes
+
+            wait_for(delivered, 'both self and TLS agent logs in Loki')
+            wait_for(lambda: all(any(marker in p.read_text() for p in (work / 'spool' / node).rglob('*.log'))
+                                 for node in ['smoke-self', 'smoke-agent']), 'both raw spool segments')
+            environment = [arg for key, value in config['grafana']['environment'].items()
+                           for arg in ['-e', f'{key}={value}']]
+            grafana_ip = start('grafana', config['grafana']['image'], environment
+                               + mount(REPO / 'collector/grafana/provisioning', '/etc/grafana/provisioning', True)
+                               + mount(work / 'grafana', '/var/lib/grafana'))
+            base = f'http://{grafana_ip}:3000'
+            wait_for(lambda: json.loads(get(base + '/api/health'))['database'] == 'ok', 'Grafana health')
+            wait_for(lambda: len([d for d in json.loads(get(base + '/api/search', True))
+                                 if d.get('type') == 'dash-db']) == 2, 'two provisioned dashboards')
+            datasource = json.loads(get(base + '/api/datasources/uid/loki', True))
+            assert datasource['url'] == 'http://loki:3100', datasource
+            print('SMOKE OK: TLS agent + self logs -> Loki + raw spool; Grafana healthy, 2 dashboards, Loki datasource')
+    except Exception:
+        for name in containers:
+            subprocess.run(['docker', 'logs', '--tail', '35', name], check=False)
+        raise
+    finally:
+        for name in reversed(containers):
+            subprocess.run(['docker', 'rm', '-f', '-v', name], check=False, stdout=subprocess.DEVNULL)
+        subprocess.run(['docker', 'network', 'rm', network], check=False, stdout=subprocess.DEVNULL)
+
+
+if __name__ == '__main__':
+    main()

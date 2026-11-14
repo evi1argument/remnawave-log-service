@@ -1,0 +1,86 @@
+{
+  "uid": "rw-log-search",
+  "title": "Логи — поиск (IP / юзер / домен -> цепочка)",
+  "tags": ["remnawave", "logs"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "type": "query",
+        "label": "Node",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "query": "label_values(node)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "tid",
+        "type": "textbox",
+        "label": "User t_id (regex)",
+        "query": ".+",
+        "current": { "text": ".+", "value": ".+" }
+      },
+      {
+        "name": "client_ip",
+        "type": "textbox",
+        "label": "Client IP (regex)",
+        "query": ".+",
+        "current": { "text": ".+", "value": ".+" }
+      },
+      {
+        "name": "domain",
+        "type": "textbox",
+        "label": "Destination (regex, e.g. example|cdn)",
+        "query": ".+",
+        "current": { "text": ".+", "value": ".+" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to use",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Фильтры (regex, RE2):** оставьте `.+` чтобы не фильтровать. Введите значение в *User t_id*, *Client IP* или *Destination* и выберите период вверху справа.\n\n- **User t_id** — числовой идентификатор из xray access (`email: N`) = `users.t_id` в панели. Сопоставление `t_id -> аккаунт` делается ОТДЕЛЬНО на сервере панели: `bash /root/resolve-users.sh <t_id ...>` (на коллекторе не хранится).\n- Таблица ниже — цепочка соединений: время (UTC) | нода | IP клиента | t_id | протокол | назначение | outbound.\n- Для выгрузки за период и авто-сопоставления пользуйтесь CLI: `/opt/logcollector/report/investigate.sh` (см. `README.md`)."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Connection chain (filtered)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 5 },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "Time", "desc": false } ] },
+      "targets": [
+        { "refId": "A", "expr": "{service=\"xray\", stream=\"access\", node=~\"$node\"} | regexp \"from (?P<client_ip>[0-9.]+):[0-9]+ accepted (?P<proto>[a-z0-9]+):(?P<dest>.+):(?P<dport>[0-9]+) \\\\[(?P<inbound>[^\\\\]]+) -> (?P<outbound>[^\\\\]]+)\\\\] email: (?P<tid>[0-9]+)\" | tid=~\"$tid\" | client_ip=~\"$client_ip\" | dest=~\"$domain\"", "maxLines": 5000 }
+      ],
+      "transformations": [
+        { "id": "extractFields", "options": { "source": "Line", "regex": "from (?P<client_ip>[0-9.]+):[0-9]+ accepted (?P<proto>[a-z0-9]+):(?P<dest>.+):(?P<dport>[0-9]+) \\[(?P<inbound>[^\\]]+) -> (?P<outbound>[^\\]]+)\\] email: (?P<tid>[0-9]+)", "keepValue": false } },
+        { "id": "organize", "options": { "excludeByName": { "Line": true, "id": true, "tsNs": true, "labels": true, "inbound": true, "dport": true }, "indexByName": { "Time": 0, "node": 1, "client_ip": 2, "tid": 3, "proto": 4, "dest": 5, "outbound": 6 }, "renameByName": { "tid": "user t_id", "client_ip": "client IP", "dest": "destination" } } }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Raw access lines (filtered)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 19 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Ascending" },
+      "targets": [
+        { "refId": "A", "expr": "{service=\"xray\", stream=\"access\", node=~\"$node\"} | regexp \"from (?P<client_ip>[0-9.]+):[0-9]+ accepted (?P<proto>[a-z0-9]+):(?P<dest>.+):(?P<dport>[0-9]+) \\\\[(?P<inbound>[^\\\\]]+) -> (?P<outbound>[^\\\\]]+)\\\\] email: (?P<tid>[0-9]+)\" | tid=~\"$tid\" | client_ip=~\"$client_ip\" | dest=~\"$domain\"", "maxLines": 5000 }
+      ]
+    }
+  ]
+}

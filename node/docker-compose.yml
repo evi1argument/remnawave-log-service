@@ -1,0 +1,16 @@
+services:
+  vector:
+    image: timberio/vector:0.61.0-alpine@sha256:3bb7ed5152910ed51729e256937b1d8a4bf67ff624e9d565e8e5877bffd015c7
+    container_name: logship-vector
+    restart: always
+    volumes:
+      - ./collector.crt:/tls/collector.crt:ro
+      - ./vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/log/remnanode:/var/log/remnanode:ro   # xray access.log/error.log ноды
+      - vector-data:/vector-data
+    networks: [ship]
+volumes:
+  vector-data:
+networks:
+  ship:
+    driver: bridge

@@ -1,0 +1,12 @@
+# /etc/logrotate.d/remnanode — держит локальный диск ноды в узде.
+# copytruncate ОБЯЗАТЕЛЕН: Xray не переоткрывает файл по сигналу (Vector детектит усечение).
+/var/log/remnanode/*.log {
+    daily
+    rotate 7
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
