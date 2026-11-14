@@ -19,7 +19,7 @@ curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -u "admin:$GF_ADMIN_PASS
   python3 -c 'import json,sys; assert sum(d.get("type")=="dash-db" for d in json.load(sys.stdin))==2'
 
 mkdir -m 0755 /var/log/remnanode
-printf 'synthetic-journey-start\n' > /var/log/remnanode/access.log
+touch /var/log/remnanode/access.log
 touch /var/log/remnanode/error.log
 if COLLECTOR_CERT=/tmp/nonexistent bash node/install-node.sh rejected "$COLLECTOR_ADDRESS"; then
   echo 'Installed an agent without a trust certificate' >&2; exit 1
@@ -30,12 +30,18 @@ bash /opt/logcollector/scripts/collector-add-node-fw.sh "$AGENT_IP"
 iptables -C LOGCOLLECTOR-6000 -s "$AGENT_IP/32" -j ACCEPT
 iptables -C LOGCOLLECTOR-6000 -j DROP
 systemctl is-active --quiet collector-firewall.service archive-upload.timer
-printf 'synthetic-user-journey-marker\n' >> /var/log/remnanode/access.log
-
+# Write the first complete line only after the firewall permits the agent.
+# Use an explicit query window and inspect Loki's JSON rather than its raw body.
+marker=synthetic-user-journey-marker
+start_ns="$(date -d '1 minute ago' +%s%N)"
+printf '%s\n' "$marker" >> /var/log/remnanode/access.log
 found=false
 for _ in $(seq 1 60); do
-  if curl -fsSG --data-urlencode 'query={node="journey"} |= "synthetic-user-journey-marker"' \
-    http://127.0.0.1:3100/loki/api/v1/query_range | grep -q synthetic-user-journey-marker; then
+  if curl -fsSG --max-time 5 -H 'Cache-Control: no-cache' \
+    --data-urlencode "start=$start_ns" --data-urlencode "end=$(date +%s%N)" \
+    --data-urlencode 'query={service="xray",node="journey",stream="access"}' \
+    http://127.0.0.1:3100/loki/api/v1/query_range |
+      jq -e --arg marker "$marker" 'any(.data.result[]?.values[]?; .[1] == $marker)' >/dev/null; then
     found=true; break
   fi
   sleep 2
@@ -44,7 +50,7 @@ if ! "$found"; then
   docker logs --tail 40 logship-vector
   docker logs --tail 40 logcollector-vector
   docker logs --tail 30 logcollector-loki
-  find /opt/logcollector/spool -type f -name '*.log' -print
+  find /opt/logcollector/spool -type f -name '*.log' -print -exec cat -- {} +
   exit 1
 fi
 # Stop the synthetic writer before aging its file and exercising the real timer service.

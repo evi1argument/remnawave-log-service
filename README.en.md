@@ -15,7 +15,7 @@ Self-hosted log collection for Remnawave VPN fleets. Collect Xray access and
 error logs over TLS with Vector, search them in Grafana with Loki, and archive
 them to S3, Google Drive, or local storage with optional age encryption.
 
-> **Release candidate.** Evaluate on a dedicated Linux host. Keep Grafana and
+> **Deployment.** Use a dedicated Linux host. Keep Grafana and
 > Loki on loopback and restrict collector TCP/6000 to your nodes at the network
 > perimeter. See the [security policy](SECURITY.md) for reporting issues.
 
