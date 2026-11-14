@@ -4,6 +4,8 @@
 
 <br />
 
+**Русский** · [English](README.en.md)
+
 [![Checks](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml/badge.svg)](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-60d9bf?style=flat-square&labelColor=172034)](LICENSE)
 [![Vector](https://img.shields.io/badge/Vector-0.61.0-8b9cff?style=flat-square&labelColor=172034)](https://vector.dev/)
@@ -21,16 +23,11 @@
 
 ---
 
-## Remnawave Log Service
+# Remnawave Log Service
 
-Self-hosted Remnawave and Xray log collection. Vector ships VPN access and error
-logs to Loki for search in Grafana. Archive logs to S3, Google Drive, or local
-storage, with optional age encryption. See the [installation guide](docs/INSTALLATION.md)
-and [security policy](SECURITY.md).
-
-> **Release candidate:** Evaluate on a dedicated Linux host. Keep Grafana and
-> Loki on loopback and restrict collector TCP/6000 to your nodes at the network
-> perimeter. Start with the [installation guide](docs/INSTALLATION.md).
+> **Предварительный релиз.** Проверяйте на выделенном Linux-хосте. Оставьте
+> Grafana и Loki доступными только локально, а TCP/6000 ограничьте адресами нод
+> на сетевом firewall. См. [установку](docs/INSTALLATION.md) и [политику безопасности](SECURITY.md).
 
 ## Что внутри
 
