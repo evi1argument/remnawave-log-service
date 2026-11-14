@@ -19,7 +19,7 @@ curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -u "admin:$GF_ADMIN_PASS
   python3 -c 'import json,sys; assert sum(d.get("type")=="dash-db" for d in json.load(sys.stdin))==2'
 
 mkdir -m 0755 /var/log/remnanode
-touch /var/log/remnanode/access.log
+printf 'synthetic-user-journey-marker\n' > /var/log/remnanode/access.log
 touch /var/log/remnanode/error.log
 if COLLECTOR_CERT=/tmp/nonexistent bash node/install-node.sh rejected "$COLLECTOR_ADDRESS"; then
   echo 'Installed an agent without a trust certificate' >&2; exit 1
@@ -34,7 +34,11 @@ systemctl is-active --quiet collector-firewall.service archive-upload.timer
 # Use an explicit query window and inspect Loki's JSON rather than its raw body.
 marker=synthetic-user-journey-marker
 start_ns="$(date -d '1 minute ago' +%s%N)"
-printf '%s\n' "$marker" >> /var/log/remnanode/access.log
+# Both roles use bridged containers on this VM, so the effective node IP
+# can only be known after the agent is created. Start a fresh connection
+# after authorizing it, rather than racing the first connect during DROP.
+docker restart logship-vector >/dev/null
+test "$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' logship-vector)" = "$AGENT_IP"
 found=false
 for attempt in $(seq 1 60); do
   if curl -fsSG --noproxy '*' --max-time 5 -H 'Cache-Control: no-cache' \
