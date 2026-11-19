@@ -33,7 +33,7 @@ def wait_for(callback, description, timeout=90):
 
 
 def get(url, authenticated=False):
-    headers = {}
+    headers = {'Cache-Control': 'no-cache'}
     if authenticated:
         headers['Authorization'] = 'Basic ' + base64.b64encode(
             b'admin:smoke-only-password').decode()
@@ -60,14 +60,6 @@ def main():
                            check=True, capture_output=True)
             (work / 'tls/key.pem').chmod(0o644)  # Disposable certificate only.
             marker = prefix
-            (work / 'self/access.log').write_text(f'{marker} self\n')
-            (work / 'logs/access.log').write_text(f'{marker} agent\n')
-            (work / 'self/error.log').touch()
-            (work / 'logs/error.log').touch()
-            marker_epoch = int(time.time()) - 120
-            canary = f'log-service-canary {marker_epoch}'
-            (work / 'self/log-service-canary.log').write_text(canary + '\n')
-            (work / 'logs/log-service-canary.log').write_text(canary + '\ninvalid marker\n')
             aggregator = (REPO / 'collector/vector/vector.aggregator.yaml').read_text()
             (work / 'aggregator.yaml').write_text(aggregator.replace('__COLLECTOR_NODE__', 'smoke-self'))
             agent = (REPO / 'node/vector/vector.agent.yaml').read_text()
@@ -98,23 +90,39 @@ def main():
                   + mount(work / 'tls/cert.pem', '/tls/collector.crt', True)
                   + mount(work / 'agent', '/vector-data')
                   + mount(work / 'logs', '/var/log/remnanode', True))
-            query = urllib.parse.urlencode({'query': f'{{service="xray"}} |= "{marker}"', 'limit': '10'})
+            start_ns = time.time_ns() - 300 * 10**9
+            (work / 'self/access.log').write_text(f'{marker} self\n')
+            (work / 'logs/access.log').write_text(f'{marker} agent\n')
+
+            def loki_streams(query):
+                params = urllib.parse.urlencode({
+                    'query': query, 'limit': 10, 'start': start_ns, 'end': time.time_ns(),
+                })
+                response = get(f'http://{loki_ip}:3100/loki/api/v1/query_range?{params}')
+                result = json.loads(response)
+                assert result['status'] == 'success', result
+                return result['data']['result']
 
             def delivered():
-                result = json.loads(get(f'http://{loki_ip}:3100/loki/api/v1/query_range?{query}'))
-                nodes = {s['stream']['node'] for s in result['data']['result']}
+                nodes = {s['stream']['node'] for s in loki_streams(f'{{service="xray"}} |= "{marker}"')}
                 return {'smoke-self', 'smoke-agent'} <= nodes
 
-            wait_for(delivered, 'both self and TLS agent logs in Loki')
+            try:
+                wait_for(delivered, 'both self and TLS agent logs in Loki')
+            except RuntimeError:
+                print('Synthetic Xray streams:', loki_streams('{service="xray"}'), flush=True)
+                raise
             wait_for(lambda: all(any(marker in p.read_text() for p in (work / 'spool' / node).rglob('*.log'))
                                  for node in ['smoke-self', 'smoke-agent']), 'both raw spool segments')
-            canary_query = urllib.parse.urlencode({
-                'query': '{service="log-service",stream="canary"}', 'limit': '10'})
+            marker_epoch = int(time.time()) - 30
+            canary = f'log-service-canary {marker_epoch}'
+            (work / 'self/log-service-canary.log').write_text(canary + '\n')
+            (work / 'logs/log-service-canary.log').write_text(canary + '\ninvalid marker\n')
 
             def canaries_delivered():
-                result = json.loads(get(f'http://{loki_ip}:3100/loki/api/v1/query_range?{canary_query}'))
                 entries = {
-                    stream['stream']['node']: stream['values'] for stream in result['data']['result']
+                    stream['stream']['node']: stream['values']
+                    for stream in loki_streams('{service="log-service",stream="canary"}')
                 }
                 expected = [[str(marker_epoch * 10**9), canary]]
                 return entries == {'smoke-agent': expected, 'smoke-self': expected}
