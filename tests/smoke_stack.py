@@ -114,20 +114,31 @@ def main():
                 raise
             wait_for(lambda: all(any(marker in p.read_text() for p in (work / 'spool' / node).rglob('*.log'))
                                  for node in ['smoke-self', 'smoke-agent']), 'both raw spool segments')
-            marker_epoch = int(time.time()) - 30
-            canary = f'log-service-canary {marker_epoch}'
-            (work / 'self/log-service-canary.log').write_text(canary + '\n')
-            (work / 'logs/log-service-canary.log').write_text(canary + '\ninvalid marker\n')
+            now = int(time.time())
+            expected = {}
+            for number, (directory, node) in enumerate([('self', 'smoke-self'), ('logs', 'smoke-agent')], 1):
+                marker_epoch = now - number
+                canary = f'log-service-canary {marker_epoch}'
+                expected[node] = {(str(marker_epoch * 10**9), canary)}
+                lines = canary + '\n'
+                if directory == 'logs':
+                    lines += 'invalid marker\n'
+                (work / directory / 'log-service-canary.log').write_text(lines)
 
+            canary_selector = '{service="log-service",stream="canary"}'
             def canaries_delivered():
                 entries = {
-                    stream['stream']['node']: stream['values']
-                    for stream in loki_streams('{service="log-service",stream="canary"}')
+                    stream['stream']['node']: set(map(tuple, stream['values']))
+                    for stream in loki_streams(canary_selector)
                 }
-                expected = [[str(marker_epoch * 10**9), canary]]
-                return entries == {'smoke-agent': expected, 'smoke-self': expected}
+                return entries == expected
 
-            wait_for(canaries_delivered, 'local and TLS canaries in Loki with original timestamps')
+            try:
+                wait_for(canaries_delivered, 'local and TLS canaries in Loki with original timestamps')
+            except RuntimeError:
+                print('Synthetic control records:', loki_streams(canary_selector), flush=True)
+                print('Expected control records:', expected, flush=True)
+                raise
             for path in (work / 'spool').rglob('*.log'):
                 assert 'log-service-canary ' not in path.read_text(), path
             environment = [arg for key, value in config['grafana']['environment'].items()
