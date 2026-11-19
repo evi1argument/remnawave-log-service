@@ -73,7 +73,7 @@ flowchart LR
 **1. Поднимите коллектор**
 
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/collector
 ./install-collector.sh
 ```
@@ -84,7 +84,7 @@ cd remnawave-log-service/collector
 **2. Подключите каждую ноду**
 
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/node
 scp root@COLLECTOR:/opt/logcollector/vector/tls/cert.pem ./collector.crt
 COLLECTOR_CERT=./collector.crt COLLECTOR_IP=COLLECTOR ./install-node.sh NODE_NAME
@@ -130,6 +130,11 @@ Grafana и Loki публикуются только на loopback.
 ```
 
 Поддерживаются Remnawave 2.x и 3.x. [Как работать с отчётами →](report/README.md)
+
+## Оповещения в Telegram
+
+- [Проверка доставки логов](docs/LOG-DELIVERY.md) — контрольная запись от ноды до Loki, независимо от пользовательского трафика.
+- [Подключение Telegram в Grafana](docs/TELEGRAM.md) — правило для всплеска строк в `error.log` по нодам, шаблон уведомления и сценарий проверки.
 
 ## Проверки
 

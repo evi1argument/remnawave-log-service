@@ -10,22 +10,32 @@ sources:
       crt_file: /tls/cert.pem
       key_file: /tls/key.pem
   # локальные логи самой ноды-коллектора (если она одновременно и VPN-нода).
-  # Если коллектор — отдельный VPS без remnanode, удали local_access/local_error/local_meta
-  # и убери их из inputs у sinks ниже, а также mount /var/log/remnanode из compose.
+  # Если коллектор — отдельный VPS без remnanode, удали локальные источники и local_meta
+  # и убери local_meta из inputs ниже, а также mount /var/log/remnanode из compose.
   local_access:
     type: file
     include: ["/self-logs/access.log"]
   local_error:
     type: file
     include: ["/self-logs/error.log"]
+  local_canary:
+    type: file
+    include: ["/self-logs/log-service-canary.log"]
 
 transforms:
   local_meta:
     type: remap
-    inputs: [local_access, local_error]
+    inputs: [local_access, local_error, local_canary]
     source: |
       .node = "__COLLECTOR_NODE__"
-      .stream = if contains(string!(.file), "error.log") { "error" } else { "access" }
+      file = string!(.file)
+      .stream = if ends_with(file, "log-service-canary.log") {
+        "canary"
+      } else if ends_with(file, "error.log") {
+        "error"
+      } else {
+        "access"
+      }
 
   checked_nodes:
     type: remap
@@ -34,9 +44,35 @@ transforms:
     source: |
       node = string(.node) ?? ""
       stream = string(.stream) ?? ""
-      if !match(node, r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') || !includes(["access", "error"], stream) {
+      if !match(node, r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') || !includes(["access", "error", "canary"], stream) {
         abort
       }
+
+  loki_meta:
+    type: remap
+    inputs: [checked_nodes, local_meta]
+    drop_on_abort: true
+    drop_on_error: true
+    source: |
+      .service = "xray"
+      if .stream == "canary" {
+        marker, error = parse_regex(string!(.message), r'^log-service-canary (?P<epoch>[0-9]{10})$')
+        if error != null {
+          abort
+        }
+        epoch = to_int!(marker.epoch)
+        received = to_unix_timestamp(now())
+        if epoch < received - 3600 || epoch > received + 60 {
+          abort
+        }
+        .timestamp = from_unix_timestamp!(epoch)
+        .service = "log-service"
+      }
+
+  archive_logs:
+    type: filter
+    inputs: [checked_nodes, local_meta]
+    condition: '.stream != "canary"'
 
 sinks:
   # 1) hot-поиск: Loki (метки node/service/stream)
@@ -48,13 +84,13 @@ sinks:
       type: disk
       max_size: 536870912
       when_full: block
-    inputs: [checked_nodes, local_meta]
+    inputs: [loki_meta]
     endpoint: http://loki:3100
     encoding:
       codec: text
     labels:
       node: "{{ node }}"
-      service: xray
+      service: "{{ service }}"
       stream: "{{ stream }}"
     out_of_order_action: accept
   # 2) долгий архив: raw-текст в spool, почасовые файлы -> archive-upload -> выбранный бэкенд
@@ -67,7 +103,7 @@ sinks:
       max_size: 536870912
       when_full: block
     idle_timeout_secs: 30
-    inputs: [checked_nodes, local_meta]
+    inputs: [archive_logs]
     path: "/spool/{{ node }}/%Y/%m/%d/%H.log"
     encoding:
       codec: text

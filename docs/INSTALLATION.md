@@ -1,5 +1,7 @@
 # Установка и настройка
 
+Команды ниже устанавливают **v1.2.0**. Для действующего стека используйте [порядок обновления](UPGRADING.md).
+
 Предпосылки: Debian/Ubuntu с systemd, root, IPv4 и [Docker Engine 28+ с плагином Compose](https://docs.docker.com/engine/install/).
 На коллекторе нужен Docker с iptables backend. До установки ограничьте входящий TCP/6000
 известными адресами нод на сетевом firewall провайдера или используйте закрытую сеть.
@@ -7,7 +9,7 @@
 
 ### 1. Коллектор
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/collector
 ./install-collector.sh          # root; спросит: бэкенд (s3/gdrive/local), шифрование, каденцию, параметры
 # для S3 с защитой архива от удаления:  APPLY_COMPLIANCE=yes ./install-collector.sh
@@ -27,7 +29,7 @@ cd remnawave-log-service/collector
 хоста; если используется NAT или DNS, задайте `COLLECTOR_ADDRESS` при установке.
 На ноде скопируйте только `cert.pem` по SSH с проверенным ключом хоста:
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/node
 scp root@COLLECTOR:/opt/logcollector/vector/tls/cert.pem ./collector.crt
 COLLECTOR_CERT=./collector.crt COLLECTOR_IP=COLLECTOR ./install-node.sh NODE_NAME
@@ -50,6 +52,10 @@ scp report/resolve-users.sh root@<PANEL>:/root/ && ssh root@<PANEL> chmod +x /ro
 - CLI-отчёт: [описание отчётов](../report/README.md).
 
 ## Настройка после установки
+
+- [Контроль доставки логов](LOG-DELIVERY.md) проверяет прохождение записи с каждой включённой ноды через Vector до Loki. Включите таймер и проверьте появление метки ноды перед подключением внешнего мониторинга.
+- [Telegram в Grafana](TELEGRAM.md) подключается отдельно для всплесков строк в `error.log`. Токен и чат задаются в Grafana; встроенная настройка подходит для любого служебного бота и чата.
+
 Настройки в `/opt/logcollector/archive/archive.conf` (бэкенд, шифрование, retention) и в юните таймера
 (`/etc/systemd/system/archive-upload.timer`, каденция). Прогнать вручную:
 `systemctl start archive-upload.service`.

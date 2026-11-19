@@ -1,0 +1,9 @@
+[Unit]
+Description=Write a synthetic log delivery marker
+ConditionPathIsDirectory=/var/log/remnanode
+
+[Service]
+Type=oneshot
+UMask=0027
+ExecStart=/usr/bin/date "+log-service-canary %%s"
+StandardOutput=append:/var/log/remnanode/log-service-canary.log

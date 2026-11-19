@@ -9,14 +9,24 @@ sources:
   error:
     type: file
     include: ["/var/log/remnanode/error.log"]
+  canary:
+    type: file
+    include: ["/var/log/remnanode/log-service-canary.log"]
 
 transforms:
   meta:
     type: remap
-    inputs: [access, error]
+    inputs: [access, error, canary]
     source: |
       .node = "__NODE_NAME__"
-      .stream = if contains(string!(.file), "error.log") { "error" } else { "access" }
+      file = string!(.file)
+      .stream = if ends_with(file, "log-service-canary.log") {
+        "canary"
+      } else if ends_with(file, "error.log") {
+        "error"
+      } else {
+        "access"
+      }
 
 sinks:
   to_collector:

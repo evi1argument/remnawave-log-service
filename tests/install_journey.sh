@@ -64,6 +64,35 @@ if ! "$found"; then
   find /opt/logcollector/spool -type f -name '*.log' -print -exec cat -- {} +
   exit 1
 fi
+# Exercise the shipped systemd producer against the dedicated collector.
+install -m 0644 node/systemd/log-service-canary.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+systemctl start log-service-canary.service
+canary_file=/var/log/remnanode/log-service-canary.log
+canary_line="$(cat "$canary_file")"
+[[ "$canary_line" =~ ^log-service-canary\ ([0-9]{10})$ ]]
+canary_ns="${BASH_REMATCH[1]}000000000"
+canary_found=false
+for attempt in $(seq 1 30); do
+  if curl -fsSG --noproxy '*' --max-time 5 \
+    --data-urlencode 'query={service="log-service",node="journey",stream="canary"}' \
+    http://127.0.0.1:3100/loki/api/v1/query_range |
+      jq -e --arg line "$canary_line" --arg ns "$canary_ns" \
+        'any(.data.result[]?.values[]?; . == [$ns, $line])' >/dev/null; then
+    canary_found=true; break
+  fi
+  sleep 2
+done
+if ! "$canary_found"; then
+  echo 'Control record did not reach Loki with its source timestamp' >&2
+  docker logs --tail 40 logship-vector
+  docker logs --tail 40 logcollector-vector
+  exit 1
+fi
+if grep -Rqs '^log-service-canary ' /opt/logcollector/spool; then
+  echo 'Control record reached the raw archive queue' >&2
+  exit 1
+fi
 # Stop the synthetic writer before aging its file and exercising the real timer service.
 docker stop logcollector-vector >/dev/null
 find /opt/logcollector/spool/journey -type f -name '*.log' -exec touch -d '2 hours ago' {} +

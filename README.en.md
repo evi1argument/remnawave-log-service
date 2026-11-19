@@ -40,7 +40,7 @@ provider firewall or use a private network before starting Docker services.
 **1. Install the collector**
 
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/collector
 ./install-collector.sh
 ```
@@ -57,7 +57,7 @@ Run the following on a node where Xray writes access and error logs to
 SSH host key before copying the public certificate.
 
 ```bash
-git clone https://github.com/evi1argument/remnawave-log-service.git
+git clone --branch v1.2.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service/node
 scp root@COLLECTOR:/opt/logcollector/vector/tls/cert.pem ./collector.crt
 COLLECTOR_CERT=./collector.crt COLLECTOR_IP=COLLECTOR ./install-node.sh NODE_NAME
@@ -95,6 +95,11 @@ retention is separate from archive retention. To run the archive job manually:
 systemctl start archive-upload.service
 journalctl -u archive-upload.service -n 20
 ```
+
+## Telegram alerts
+
+- The [log delivery check (Russian)](docs/LOG-DELIVERY.md) tracks a synthetic marker for each node through Vector to Loki, independent of client traffic.
+- The [Telegram setup guide (Russian)](docs/TELEGRAM.md) includes an optional Grafana rule for per-node spikes in Xray error log volume, a notification template, and a test procedure.
 
 ## Validation and upgrades
 

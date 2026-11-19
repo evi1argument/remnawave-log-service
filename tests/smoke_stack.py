@@ -64,6 +64,10 @@ def main():
             (work / 'logs/access.log').write_text(f'{marker} agent\n')
             (work / 'self/error.log').touch()
             (work / 'logs/error.log').touch()
+            marker_epoch = int(time.time()) - 120
+            canary = f'log-service-canary {marker_epoch}'
+            (work / 'self/log-service-canary.log').write_text(canary + '\n')
+            (work / 'logs/log-service-canary.log').write_text(canary + '\ninvalid marker\n')
             aggregator = (REPO / 'collector/vector/vector.aggregator.yaml').read_text()
             (work / 'aggregator.yaml').write_text(aggregator.replace('__COLLECTOR_NODE__', 'smoke-self'))
             agent = (REPO / 'node/vector/vector.agent.yaml').read_text()
@@ -104,6 +108,20 @@ def main():
             wait_for(delivered, 'both self and TLS agent logs in Loki')
             wait_for(lambda: all(any(marker in p.read_text() for p in (work / 'spool' / node).rglob('*.log'))
                                  for node in ['smoke-self', 'smoke-agent']), 'both raw spool segments')
+            canary_query = urllib.parse.urlencode({
+                'query': '{service="log-service",stream="canary"}', 'limit': '10'})
+
+            def canaries_delivered():
+                result = json.loads(get(f'http://{loki_ip}:3100/loki/api/v1/query_range?{canary_query}'))
+                entries = {
+                    stream['stream']['node']: stream['values'] for stream in result['data']['result']
+                }
+                expected = [[str(marker_epoch * 10**9), canary]]
+                return entries == {'smoke-agent': expected, 'smoke-self': expected}
+
+            wait_for(canaries_delivered, 'local and TLS canaries in Loki with original timestamps')
+            for path in (work / 'spool').rglob('*.log'):
+                assert 'log-service-canary ' not in path.read_text(), path
             environment = [arg for key, value in config['grafana']['environment'].items()
                            for arg in ['-e', f'{key}={value}']]
             grafana_ip = start('grafana', config['grafana']['image'], environment
@@ -115,7 +133,7 @@ def main():
                                  if d.get('type') == 'dash-db']) == 2, 'two provisioned dashboards')
             datasource = json.loads(get(base + '/api/datasources/uid/loki', True))
             assert datasource['url'] == 'http://loki:3100', datasource
-            print('SMOKE OK: TLS agent + self logs -> Loki + raw spool; Grafana healthy, 2 dashboards, Loki datasource')
+            print('SMOKE OK: Xray logs reach Loki and spool; canaries reach only Loki; Grafana healthy')
     except Exception:
         for name in containers:
             subprocess.run(['docker', 'logs', '--tail', '35', name], check=False)
