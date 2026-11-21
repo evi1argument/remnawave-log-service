@@ -26,6 +26,7 @@ class DocumentationTest(unittest.TestCase):
                 self.assertEqual(self.destinations(en), self.destinations(ru))
 
     def destinations(self, value):
-        return {target.replace("/README.ru.md", "/README.md").replace("installer-ru.png", "installer-en.png")
+        return {target.replace("/README.ru.md", "/README.md")
+                .replace("installer-ru.png", "installer-en.png").replace("#мастер-установки", "#guided-setup")
                 for target in re.findall(r"\]\(([^)]+)\)", value)
                 if target not in {"README.md", "README.ru.md"} and target.strip()}

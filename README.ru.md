@@ -6,6 +6,13 @@
 
 [![Checks](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml/badge.svg)](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-60d9bf?style=flat-square&labelColor=172034)](LICENSE)
+[![Vector](https://img.shields.io/badge/Vector-0.61.0-8b9cff?style=flat-square&labelColor=172034)](https://vector.dev/)
+[![Loki](https://img.shields.io/badge/Loki-3.7.10-8b9cff?style=flat-square&labelColor=172034)](https://grafana.com/oss/loki/)
+[![Grafana](https://img.shields.io/badge/Grafana-13.3.1-8b9cff?style=flat-square&labelColor=172034)](https://grafana.com/oss/grafana/)
+
+**Логи Xray со всех нод Remnawave в одном месте.**
+
+[Быстрый старт](#мастер-установки) · [Установка](docs/INSTALLATION.md) · [Обновление](docs/UPGRADING.md) · [Отчёты](report/README.md)
 
 </div>
 
