@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the collector heartbeat from a separate host
+After=network-online.target
+ConditionPathExists=/etc/log-service-watchdog.json
+
+[Service]
+Type=oneshot
+UMask=0077
+StateDirectory=log-service-watchdog
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/log-service-watchdog/watchdog.py run
+TimeoutStartSec=20

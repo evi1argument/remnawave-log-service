@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import getpass
 import hashlib
 import html
+from ipaddress import IPv4Address
 import json
 import math
 import os
@@ -28,8 +29,10 @@ CHECKS = {
     'disk': ('Collector disk space', 'Место на диске коллектора'),
     'archive': ('Archive job and timer', 'Архиватор и его таймер'),
     'errors': ('Xray error.log volume', 'Число строк в error.log Xray'),
+    'traffic': ('Fresh Xray log entries by node', 'Свежесть записей Xray по нодам'),
 }
 CANARIES = 'sum by (node) (count_over_time({service="log-service",stream="canary"}[5m]))'
+TRAFFIC = 'sum by (node) (count_over_time({service="xray"}[15m]))'
 ERRORS = (
     'sum by (node) (count_over_time({service="xray",stream="error"}[5m])) or on (node) '
     '(0 * sum by (node) (count_over_time({service="xray",stream="access"}[10m])))'
@@ -61,7 +64,7 @@ def save_json(path, value):
         Path(name).unlink(missing_ok=True)
 
 
-def validate(config):
+def validate_recipient(config):
     if not isinstance(config, dict):
         raise ValueError('Expected a configuration object')
     token = config.get('token')
@@ -72,6 +75,13 @@ def validate(config):
     topic = config.get('topic')
     if topic is not None and (type(topic) is not int or topic <= 0):
         raise ValueError('Enter a positive Telegram topic ID')
+    if config.get('language') not in ('en', 'ru'):
+        raise ValueError('Language must be en or ru')
+    return config
+
+
+def validate(config):
+    validate_recipient(config)
     checks = config.get('checks', [])
     if not isinstance(checks, list) or not checks or any(
         not isinstance(check, str) or check not in CHECKS for check in checks
@@ -81,10 +91,8 @@ def validate(config):
     if not isinstance(nodes, list) or any(not isinstance(node, str) or not NODE.fullmatch(node)
                                           for node in nodes):
         raise ValueError('Invalid node label')
-    if 'delivery' in checks and not nodes:
-        raise ValueError('Delivery checks require expected node labels')
-    if config.get('language') not in ('en', 'ru'):
-        raise ValueError('Language must be en or ru')
+    if {'delivery', 'traffic'}.intersection(checks) and not nodes:
+        raise ValueError('Delivery and freshness checks require expected node labels')
     hours = config.get('archive_hours', 192)
     if type(hours) is not int or not 1 <= hours <= 8760:
         raise ValueError('Archive delay must be 1 to 8760 hours')
@@ -196,28 +204,38 @@ class Incidents:
             'recipient': fingerprint, 'incidents': {},
         }
 
-    def check(self, key, bad, title, now, pending=120):
+    def check(self, key, bad, title, now, pending=120, recovery_pending=0, delivery_now=None):
+        if delivery_now is None:
+            delivery_now = now
         incidents = self.state['incidents']
         if bad:
             item = incidents.setdefault(key, {'opened': now, 'title': title})
-            if not item.get('message_id') and now - item.get('observed', now) > 150:
+            if not item.get('message_id') and not 0 <= now - item.get('observed', now) <= 150:
                 item['opened'] = now
             item['observed'] = now
             item.pop('recovered', None)
+            item.pop('last_good', None)
+            if item.get('message_id'):
+                return True
         elif key in incidents and incidents[key].get('message_id'):
             item = incidents[key]
-            item.setdefault('recovered', now)
+            if 'recovered' not in item or not 0 <= now - item.get('last_good', now) <= 150:
+                item['recovered'] = now
+            item['last_good'] = now
+            if now - item['recovered'] < recovery_pending:
+                return False
         else:
             incidents.pop(key, None)
-            return
-        if now < self.state.get('retry_at', 0) or self.remaining == 0:
-            return
+            return True
+        if delivery_now < self.state.get('retry_at', 0) or self.remaining == 0:
+            return False
         try:
-            if bad and not item.get('message_id') and now - item['opened'] >= pending:
+            if bad and now - item['opened'] >= pending:
                 self.remaining -= 1
                 save_json(self.path, self.state)
                 item['message_id'] = self.telegram.send(card(self.language, item['title'], item['opened']))
                 save_json(self.path, self.state)
+                return True
             elif not bad:
                 self.remaining -= 1
                 save_json(self.path, self.state)
@@ -225,16 +243,21 @@ class Incidents:
                                       item['opened'], item['recovered']))
                 del incidents[key]
                 save_json(self.path, self.state)
+                return True
         except TelegramError as error:
             delay = max(60, error.retry_after) if error.code != 401 else 300
-            self.state['retry_at'] = now + delay
+            self.state['retry_at'] = delivery_now + delay
             save_json(self.path, self.state)
             print(error, flush=True)
+        return False
 
     def unknown(self, key):
         item = self.state['incidents'].get(key)
         if item and not item.get('message_id'):
             del self.state['incidents'][key]
+        elif item:
+            item.pop('recovered', None)
+            item.pop('last_good', None)
 
 
 def command(*args):
@@ -244,7 +267,7 @@ def command(*args):
 def local_check(probe):
     try:
         return bool(probe())
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         return False
 
 
@@ -271,7 +294,8 @@ def monitor(config, incidents, now):
 
     def check(key, bad, english, russian, pending=120):
         checked.add(key)
-        incidents.check(key, bad, localized(lang, english, russian), now, pending)
+        incidents.check(key, bad, localized(lang, english, russian), now, pending,
+                        recovery_pending=60 if key.startswith('service-') else 0)
 
     if 'services' in enabled:
         for name, probe in (
@@ -282,6 +306,22 @@ def monitor(config, incidents, now):
         ):
             check('service-' + name, not local_check(probe),
                   f'{name} unavailable', f'{name} недоступен')
+        if local_check(lambda: command('systemctl', 'is-enabled', '--quiet',
+                                       'log-service-beszel.service').returncode == 0):
+            def relay_ready():
+                bind = IPv4Address(read_json(CONFIG.with_name('beszel.json'), {})['bind'])
+                return http(f'http://{bind}:7077/health') == b''
+
+            check('service-beszel', not local_check(relay_ready),
+                  'Beszel relay unavailable', 'Приём событий Beszel недоступен')
+            oldest = now
+            for item in STATE.parent.joinpath('beszel-queue').glob('event-*.json'):
+                try:
+                    oldest = min(oldest, item.stat().st_mtime)
+                except FileNotFoundError:
+                    continue
+            check('beszel-queue', now - oldest > 120, 'Beszel events queued for more than 2 minutes',
+                  'События Beszel ждут отправки более 2 минут', pending=0)
     if 'disk' in enabled:
         try:
             disk = shutil.disk_usage('/opt/logcollector/spool')
@@ -311,7 +351,7 @@ def monitor(config, incidents, now):
         incidents.state.pop('archive_since', None)
 
     query_failed = False
-    for kind, query in (('delivery', CANARIES), ('errors', ERRORS)):
+    for kind, query in (('delivery', CANARIES), ('traffic', TRAFFIC), ('errors', ERRORS)):
         if kind not in enabled:
             continue
         try:
@@ -328,6 +368,11 @@ def monitor(config, incidents, now):
                 check('delivery:' + node, values.get(node, 0) == 0,
                       f'{node} · No delivery marker in Loki for 5 minutes',
                       f'{node} · В Loki нет контрольной записи за 5 минут')
+        elif kind == 'traffic':
+            for node in config['nodes']:
+                check('traffic:' + node, values.get(node, 0) == 0,
+                      f'{node} · No Xray logs for 15 minutes. The node may be idle.',
+                      f'{node} · 15 минут без записей Xray. Возможно, на ноде нет трафика.')
         else:
             for key in tuple(incidents.state['incidents']):
                 if key.startswith('errors:') and key.split(':', 1)[1] not in values:
@@ -337,14 +382,14 @@ def monitor(config, incidents, now):
                 check('errors:' + node, value > 20,
                       f'{node} · More than 20 error.log lines in 5 minutes',
                       f'{node} · Более 20 строк error.log за 5 минут', pending=300)
-    if 'delivery' in enabled or 'errors' in enabled:
+    if {'delivery', 'traffic', 'errors'}.intersection(enabled):
         check('query-loki', query_failed, 'Loki log query failed', 'Ошибка запроса к логам Loki')
     for key in incidents.state['incidents'].keys() - checked:
         del incidents.state['incidents'][key]
     save_json(incidents.path, incidents.state)
 
 
-def configure(path, language):
+def recipient_from_terminal(path, language):
     if not os.isatty(0):
         raise ValueError('Run interactive setup from a terminal')
     previous = read_json(path, {})
@@ -363,6 +408,16 @@ def configure(path, language):
 
     chat = int(ask(tr('Numeric chat ID', 'Числовой ID чата'), previous.get('chat', '')))
     topic = int(ask(tr('Topic ID (0 for no topic)', 'ID темы (0 — без темы)'), previous.get('topic') or 0))
+    result = {'token': token, 'chat': chat, 'topic': topic or None, 'language': language}
+    return validate_recipient(result), previous, ask
+
+
+def configure(path, language):
+    config, previous, ask = recipient_from_terminal(path, language)
+
+    def tr(en, ru):
+        return localized(language, en, ru)
+
     choices = dict(enumerate(CHECKS, 1))
     for index, key in choices.items():
         print(f'{index}. {tr(*CHECKS[key])}')
@@ -370,15 +425,18 @@ def configure(path, language):
                         if key in previous.get('checks', ['services', 'disk', 'archive']))
     selected = ask(tr('Checks, separated by commas', 'Номера проверок через запятую'), defaults)
     checks = list(dict.fromkeys(choices[int(number)] for number in selected.split(',')))
-    config = {'token': token, 'chat': chat, 'topic': topic or None, 'checks': checks,
-              'language': language, 'nodes': []}
+    config.update(checks=checks, nodes=[])
     if 'archive' in checks:
         config['archive_hours'] = int(ask(tr('Maximum hours since a successful archive run',
                                             'Допустимое время без успешной архивации, ч.'),
                                          previous.get('archive_hours', 192)))
-    if 'delivery' in checks:
-        nodes = ask(tr('Node labels with active delivery timers (comma separated)',
-                       'Метки нод с включённым таймером доставки (через запятую)'),
+    if {'delivery', 'traffic'}.intersection(checks):
+        if 'delivery' in checks:
+            prompt = tr('Node labels with active delivery timers (comma separated)',
+                        'Метки нод с включённым таймером доставки (через запятую)')
+        else:
+            prompt = tr('Expected node labels (comma separated)', 'Метки нод (через запятую)')
+        nodes = ask(prompt,
                     ','.join(previous.get('nodes', [])))
         config['nodes'] = sorted({node.strip() for node in nodes.split(',') if node.strip()})
     validate(config)

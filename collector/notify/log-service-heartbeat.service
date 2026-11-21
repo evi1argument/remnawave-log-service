@@ -1,0 +1,10 @@
+[Unit]
+Description=Send the collector heartbeat over SSH
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/log-service-heartbeat-ssh.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh -F /etc/log-service-heartbeat-ssh.conf -o BatchMode=yes -o StrictHostKeyChecking=yes -o ClearAllForwardings=yes -o ConnectTimeout=8 -nT log-service-watchdog
+TimeoutStartSec=15

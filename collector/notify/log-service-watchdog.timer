@@ -1,0 +1,10 @@
+[Unit]
+Description=Check collector reachability every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

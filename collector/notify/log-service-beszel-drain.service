@@ -1,0 +1,9 @@
+[Unit]
+Description=Deliver queued Beszel incidents to Telegram
+ConditionPathExists=/opt/logcollector/notify/config.json
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/logcollector/notify/beszel.py drain
+TimeoutStartSec=110

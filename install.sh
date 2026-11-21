@@ -71,6 +71,8 @@ usage() {
   sudo bash install.sh --lang ru doctor       Диагностика
   sudo bash install.sh --lang ru notify       Настроить уведомления Telegram
   sudo bash install.sh --lang ru notify status|test|disable
+  sudo bash install.sh --lang ru notify watchdog|heartbeat|beszel
+  sudo bash install.sh --lang ru notify watchdog-disable|heartbeat-disable|beszel-disable|beszel-url
 
 Коллектор и агент устанавливаются на своих серверах.
 Мониторинг доступности запускается на сервере с локальным API Remnawave.
@@ -88,6 +90,8 @@ Usage: Remnawave Log Service
   sudo bash install.sh doctor       Check dependencies and services
   sudo bash install.sh notify       Configure Telegram alerts
   sudo bash install.sh notify status|test|disable
+  sudo bash install.sh notify watchdog|heartbeat|beszel
+  sudo bash install.sh notify watchdog-disable|heartbeat-disable|beszel-disable|beszel-url
   sudo bash install.sh --lang ru    Open the menu in Russian
 
 Run the collector and node steps on their respective hosts.
@@ -308,11 +312,18 @@ menu_item() {
 
 setup_notify() {
   require_linux
-  local action="${1:-configure}"
+  local action="${1:-configure}" source="$repo/collector/notify"
   case "$action" in
     status)
+      local unit
+      for unit in "$notify_unit.timer" log-service-watchdog.timer log-service-heartbeat.timer \
+                  log-service-beszel.service log-service-beszel-drain.timer; do
+        if [[ -f "/etc/systemd/system/$unit" ]]; then
+          printf '%s — ' "$unit"
+          systemctl is-active "$unit" || true
+        fi
+      done
       if [[ -f "$notify_dir/config.json" ]]; then
-        systemctl is-active "$notify_unit.timer" || true
         python3 "$notify_dir/monitor.py" status --lang "$INSTALL_LANG"
       else
         printf '%s\n' "$(loc 'Telegram alerts are not configured.' 'Уведомления Telegram не настроены.')"
@@ -329,6 +340,50 @@ setup_notify() {
         rm -f -- /etc/systemd/system/archive-upload.service.d/50-log-service-notify.conf
         systemctl daemon-reload
       fi ;;
+    watchdog)
+      lock_install
+      command -v python3 >/dev/null || apt-get install -y python3
+      install -d -m 0755 /opt/log-service-watchdog
+      install -m 0700 "$source/monitor.py" "$source/watchdog.py" /opt/log-service-watchdog/
+      install -m 0755 "$source/receive-heartbeat.sh" /opt/log-service-watchdog/
+      python3 /opt/log-service-watchdog/watchdog.py configure --lang "$INSTALL_LANG"
+      install -m 0644 "$source"/log-service-watchdog.{service,timer} /etc/systemd/system/
+      systemctl daemon-reload
+      systemctl enable --now log-service-watchdog.timer ;;
+    heartbeat)
+      lock_install
+      [[ -f /etc/log-service-heartbeat-ssh.conf ]] ||
+        { fail "$(loc 'Configure /etc/log-service-heartbeat-ssh.conf first. See docs/TELEGRAM.md.' 'Сначала настройте /etc/log-service-heartbeat-ssh.conf. См. docs/TELEGRAM.md.')"; return 1; }
+      install -m 0644 "$source"/log-service-heartbeat.{service,timer} /etc/systemd/system/
+      systemctl daemon-reload
+      systemctl start log-service-heartbeat.service
+      systemctl enable --now log-service-heartbeat.timer ;;
+    beszel)
+      [[ -f "$notify_dir/config.json" ]] ||
+        { fail "$(loc 'Configure Telegram alerts first.' 'Сначала настройте уведомления Telegram.')"; return 1; }
+      lock_install
+      install -m 0700 "$source/beszel.py" "$notify_dir/beszel.py"
+      install -m 0700 "$source/monitor.py" "$notify_dir/monitor.py"
+      install -d -m 0700 /var/lib/log-service-notify/beszel-queue
+      python3 "$notify_dir/beszel.py" configure --lang "$INSTALL_LANG"
+      install -m 0644 "$source"/log-service-beszel.service \
+        "$source"/log-service-beszel-drain.{service,timer} /etc/systemd/system/
+      systemctl daemon-reload
+      systemctl enable log-service-beszel.service
+      systemctl restart log-service-beszel.service
+      systemctl enable --now log-service-beszel-drain.timer
+      printf '%s\n' "$(loc 'Use notify beszel-url to display the private webhook URL.' 'Команда notify beszel-url покажет закрытый адрес вебхука.')" ;;
+    beszel-url)
+      python3 "$notify_dir/beszel.py" url --lang "$INSTALL_LANG" ;;
+    watchdog-disable|heartbeat-disable)
+      lock_install
+      local schedule="log-service-${action%-disable}"
+      systemctl disable --now "$schedule.timer"
+      systemctl stop "$schedule.service" ;;
+    beszel-disable)
+      lock_install
+      systemctl disable --now log-service-beszel.service log-service-beszel-drain.timer
+      systemctl stop log-service-beszel-drain.service ;;
     configure)
       [[ -f "$collector/docker-compose.yml" ]] ||
         { fail "$(loc 'Install the collector first.' 'Сначала установите коллектор.')"; return 1; }
@@ -428,7 +483,8 @@ doctor() {
   fi
   if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
     section "$(loc 'SERVICES' 'СЛУЖБЫ')"
-    for unit in collector-firewall.service archive-upload.timer "$status_unit.timer" "$notify_unit.timer"; do
+    for unit in collector-firewall.service archive-upload.timer "$status_unit.timer" "$notify_unit.timer" \
+                log-service-watchdog.timer log-service-heartbeat.timer log-service-beszel.service; do
       local state
       state="$(systemctl is-active "$unit" 2>/dev/null)" || true
       case "$state" in
