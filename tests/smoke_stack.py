@@ -112,8 +112,6 @@ def main():
             except RuntimeError:
                 print('Synthetic Xray streams:', loki_streams('{service="xray"}'), flush=True)
                 raise
-            wait_for(lambda: all(any(marker in p.read_text() for p in (work / 'spool' / node).rglob('*.log'))
-                                 for node in ['smoke-self', 'smoke-agent']), 'both raw spool segments')
             now = int(time.time())
             expected = {}
             for number, (directory, node) in enumerate([('self', 'smoke-self'), ('logs', 'smoke-agent')], 1):
@@ -139,8 +137,22 @@ def main():
                 print('Synthetic control records:', loki_streams(canary_selector), flush=True)
                 print('Expected control records:', expected, flush=True)
                 raise
-            for path in (work / 'spool').rglob('*.log'):
-                assert 'log-service-canary ' not in path.read_text(), path
+            # Archives consume closed segments. Stop the writers in upstream
+            # order so Vector drains its disk buffers and closes the files.
+            for role in ('agent', 'collector'):
+                name = prefix + '-' + role
+                docker('stop', '--time', '70', name)
+                state = json.loads(docker('inspect', name))[0]['State']
+                assert state['ExitCode'] == 0 and not state['OOMKilled'], (name, state)
+
+            spool = work / 'spool'
+            records = {}
+            for path in sorted(spool.rglob('*.log')):
+                node = path.relative_to(spool).parts[0]
+                records.setdefault(node, []).extend(path.read_text().splitlines())
+            expected_spool = {'smoke-self': {f'{marker} self'}, 'smoke-agent': {f'{marker} agent'}}
+            assert {node: set(lines) for node, lines in records.items()} == expected_spool, (
+                'Unexpected closed raw spool segments', records)
             environment = [arg for key, value in config['grafana']['environment'].items()
                            for arg in ['-e', f'{key}={value}']]
             grafana_ip = start('grafana', config['grafana']['image'], environment
