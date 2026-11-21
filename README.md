@@ -47,7 +47,7 @@ ssh -N -L 3000:127.0.0.1:3000 root@COLLECTOR
 
 Open `http://127.0.0.1:3000` and sign in as `admin`. The password is in `/opt/logcollector/.env` on the collector. Open **Remnawave Logs → Log search** and check for a recent entry from the node.
 
-For S3, Google Drive, or a collector that also runs a VPN node, follow the [manual installation guide (RU)](docs/INSTALLATION.md). For an existing setup, use the [upgrade guide (RU)](docs/UPGRADING.md).
+For S3 or Google Drive, follow the [manual installation guide (RU)](docs/INSTALLATION.md). For an existing setup, use the [upgrade guide (RU)](docs/UPGRADING.md).
 
 ## Search and monitor
 
