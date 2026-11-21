@@ -1,171 +1,63 @@
-<div align="center">
+# Remnawave Log Service
 
-<img src="assets/banner.svg" alt="Remnawave Log Service — Collect. Search. Archive." width="100%" />
+Собирайте журналы доступа и ошибок Xray с нод Remnawave. Свежие записи можно искать в Grafana через Loki, а архив хранить на диске, в S3-совместимом хранилище или Google Drive. Всё работает на ваших серверах.
 
 [English](README.md) · **Русский**
 
-[![Checks](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml/badge.svg)](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml)
+[![Checks](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/evi1argument/remnawave-log-service/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-60d9bf?style=flat-square&labelColor=172034)](LICENSE)
 [![Vector](https://img.shields.io/badge/Vector-0.61.0-8b9cff?style=flat-square&labelColor=172034)](https://vector.dev/)
 [![Loki](https://img.shields.io/badge/Loki-3.7.10-8b9cff?style=flat-square&labelColor=172034)](https://grafana.com/oss/loki/)
 [![Grafana](https://img.shields.io/badge/Grafana-13.3.1-8b9cff?style=flat-square&labelColor=172034)](https://grafana.com/oss/grafana/)
 
-**Логи Xray со всех нод Remnawave в одном месте.**
+[Мастер установки](#мастер-установки) · [Установка и выбор хранилища](docs/INSTALLATION.md) · [Обновление и откат](docs/UPGRADING.md) · [Отчёты](report/README.md)
 
-[Быстрый старт](#мастер-установки) · [Установка](docs/INSTALLATION.md) · [Обновление](docs/UPGRADING.md) · [Отчёты](report/README.md)
+## Что на каком сервере работает
 
-</div>
+| Где | Что делает |
+| --- | --- |
+| На каждой VPN-ноде | Агент Vector читает файлы Xray и отправляет записи по TLS. При подключении он проверяет сертификат коллектора. |
+| На коллекторе | Vector принимает записи. В Loki по умолчанию доступны для поиска последние 30 дней. Grafana показывает логи, а отдельная задача складывает их в архив для более долгого хранения. |
 
-# Remnawave Log Service
+## Мастер установки
 
-Сбор логов VPN-нод Remnawave на своей инфраструктуре. Vector передаёт журналы доступа и ошибок Xray по TLS. Логи доступны для поиска через Loki в Grafana, а архив можно хранить в S3, Google Drive или на локальном диске с шифрованием age.
+Выделите под коллектор сервер с Debian или Ubuntu. На нём и на нодах установите [Docker Engine 28+ с плагином Compose](https://docs.docker.com/engine/install/). На коллекторе Docker должен использовать iptables. Нужен доступ root и соединение по IPv4 от каждой ноды до коллектора. [Настройте запись логов Xray в файлы](docs/INSTALLATION.md#prepare-xray).
 
-> **Развёртывание.** Используйте отдельный Linux-сервер. Оставьте Grafana и Loki доступными только через loopback. Ограничьте TCP/6000 на сетевом периметре коллектора адресами нод. Как сообщить об уязвимости, указано в [политике безопасности](SECURITY.md).
+Перед установкой откройте TCP/6000 в межсетевом экране провайдера только для адресов своих нод или используйте закрытую сеть. Grafana и Loki принимают подключения на коллекторе через локальный адрес.
 
-## Как это работает
-
-| Сбор | Поиск | Архив |
-| --- | --- | --- |
-| Агенты Vector с дисковыми буферами | Loki и два дашборда в Grafana | S3, Google Drive или локальный диск |
-| Агенты проверяют сертификат коллектора | Фильтры по ноде, IP, ID пользователя и адресу назначения | Шифрование age и повторные попытки загрузки |
-
-Соответствие числовых ID аккаунтам остаётся на сервере панели. Поиск аккаунта выполняется отдельно. Логи VPN могут содержать идентифицирующую информацию, поэтому ограничьте доступ и настройте срок хранения.
-
-```mermaid
-flowchart LR
-    node["VPN-ноды · логи Xray"] --> agent["Агент Vector · дисковый буфер"]
-    agent -->|"TLS · 6000"| collector["Коллектор Vector"]
-    collector --> loki["Loki"] --> grafana["Grafana"]
-    collector --> spool["Очередь сырых логов"] --> archive["S3 / Google Drive / локальный диск"]
-```
-
-## Опциональный мониторинг доступности
-
-[Statusboard](statusboard/README.ru.md) сохраняет состояние нод Remnawave или результаты независимых сквозных VPN-проверок. Суточная история содержит 96 закрытых интервалов. Покрытие замеров публикуется отдельно.
-
-## Быстрый старт
-
-### Мастер установки
-
-Нужны Debian или Ubuntu с systemd, root-доступ, IPv4 и [Docker Engine 28+ с плагином Compose](https://docs.docker.com/engine/install/). Используйте iptables как бэкенд Docker на коллекторе. Перед запуском контейнеров ограничьте TCP/6000 в firewall провайдера или используйте приватную сеть.
-
-Клонируйте репозиторий и запустите меню:
+Склонируйте стабильный выпуск на коллекторе и на каждой ноде.
 
 ```bash
 git clone --branch v1.3.0 https://github.com/evi1argument/remnawave-log-service.git
 cd remnawave-log-service
-sudo bash install.sh
 ```
 
-В терминале выберите действие стрелками **↑/↓** или его номером и нажмите **Enter**.
-Клавиша **L** переключает английский и русский. Также можно
-запустите мастер сразу на русском командой `sudo bash install.sh --lang ru`.
-Флаг работает и с подкомандами, например `sudo bash install.sh --lang ru doctor`.
+Запустите `sudo bash install.sh --lang ru` для русского меню или `sudo bash install.sh --lang en` для английского. Выберите пункт стрелками или введите его номер, затем нажмите **Enter**.
 
-<a href="docs/images/installer-ru.png"><img src="docs/images/installer-ru.png" width="420" alt="Компактное меню установки на Ubuntu на русском языке"></a>
+<a href="docs/images/installer-ru.png"><img src="docs/images/installer-ru.png" width="420" alt="Русское меню установки с пунктами настройки коллектора, агента, доступа и диагностики"></a>
 
-1. На коллекторе выберите **Install a collector**. Мастер настраивает локальный архив со сроком хранения и опциональным шифрованием age.
-2. Перенесите публичный сертификат коллектора на каждую ноду через доверенное SSH-соединение. Запустите меню на ноде и выберите **Install a node agent**.
-3. На коллекторе выберите **Allow a node** для каждого адреса агента.
-4. Для диагностики используйте **Check this server**. Для опционального мониторинга доступности нужны локальный API Remnawave и API-токен панели.
-
-Мастер предназначен для новой установки и проверяет наличие существующей конфигурации. Запускайте шаги для коллектора и ноды на соответствующих серверах. Для S3, Google Drive, обновления и переноса используйте руководства ниже.
-
-### Ручная установка
-
-**1. Установите коллектор**
-
-```bash
-git clone --branch v1.3.0 https://github.com/evi1argument/remnawave-log-service.git
-cd remnawave-log-service/collector
-./install-collector.sh
-```
-
-Инсталлятор запрашивает тип архива и параметры шифрования. Для выделенного коллектора без VPN-ноды используйте `COLLECTOR_NODE=-`. Пароль администратора Grafana хранится в `/opt/logcollector/.env` с доступом только для root.
-
-**2. Установите каждый агент**
-
-Выполните на ноде, где Xray пишет журналы доступа и ошибок в `/var/log/remnanode/`. Замените `COLLECTOR` и `NODE_NAME`. Проверьте ключ SSH-хоста коллектора перед копированием публичного сертификата.
-
-```bash
-git clone --branch v1.3.0 https://github.com/evi1argument/remnawave-log-service.git
-cd remnawave-log-service/node
-scp root@COLLECTOR:/opt/logcollector/vector/tls/cert.pem ./collector.crt
-COLLECTOR_CERT=./collector.crt COLLECTOR_IP=COLLECTOR ./install-node.sh NODE_NAME
-```
-
-На коллекторе добавьте фактический IPv4 источника ноды в firewall провайдера и список разрешений Docker. При NAT используйте выходной IP.
-
-```bash
-/opt/logcollector/scripts/collector-add-node-fw.sh NODE_IP
-```
-
-**3. Откройте Grafana через SSH**
+1. На коллекторе выберите **Установить коллектор**. Мастер настроит локальный архив и спросит, сколько дней его хранить. Если нужно шифрование, укажите открытый ключ age.
+2. Скопируйте `/opt/logcollector/vector/tls/cert.pem` с коллектора на каждую ноду по SSH, предварительно проверив ключ хоста. На ноде выберите **Установить агент ноды** и укажите путь к скопированному сертификату.
+3. На коллекторе выберите **Разрешить доступ ноды**. Введите IPv4-адрес, с которого коллектор видит подключение. Если нода за NAT, укажите её внешний IPv4.
+4. Со своего компьютера откройте SSH-туннель к Grafana. Замените `COLLECTOR` адресом коллектора.
 
 ```bash
 ssh -N -L 3000:127.0.0.1:3000 root@COLLECTOR
 ```
 
-Откройте `http://127.0.0.1:3000`, войдите как `admin` и откройте папку **Remnawave Logs**. Убедитесь, что нода видна в **Fleet overview**, и найдите свежее событие в **Log search**.
+Откройте `http://127.0.0.1:3000` и войдите как `admin`. Пароль лежит в `/opt/logcollector/.env` на коллекторе. Откройте **Remnawave Logs → Log search** и найдите свежую запись с ноды.
 
-## Выбор архива
+Для S3, Google Drive или коллектора, который одновременно служит VPN-нодой, используйте [ручную установку](docs/INSTALLATION.md). Если сервис уже работает, следуйте [руководству по обновлению](docs/UPGRADING.md).
 
-| Бэкенд | Настройка | Защита от удаления |
-| --- | --- | --- |
-| S3 | Создайте бакет и сервисный ключ с ограниченными правами. | Object Lock с версионированием, если их поддерживает хранилище. |
-| Google Drive | Настройте rclone remote и используйте шифрование age. | Встроенного неизменяемого хранения нет. |
-| Local | Храните архивы на локальном диске. Для выгрузки по SSH можно использовать `scripts/pull-to-pc.sh`. | Зависит от прав файловой системы и резервных копий. |
+## Поиск и мониторинг
 
-Храните приватный ключ age вне коллектора. Срок доступности логов для поиска в Loki задаётся отдельно от срока хранения архивов. Периодичность архивации — `hourly`, `daily` или `weekly`. Для ручного запуска:
+- **Найти запись Xray.** В **Fleet overview** видна активность по нодам. В **Log search** можно выбрать ноду, IP-адрес, ID пользователя или адрес назначения. Утилита отчётов умеет искать аккаунты в Remnawave 2.x и 3.x. [Примеры отчётов](report/README.md)
+- **Проверить доставку логов.** На выбранных нодах можно раз в минуту писать контрольную строку. Запрос к Loki покажет, с каких нод приходят записи, даже когда у VPN нет клиентов. [Настройка проверки доставки](docs/LOG-DELIVERY.md)
+- **Получать уведомления в Telegram.** Настройте правило Grafana, чтобы оно срабатывало при всплеске строк в `error.log` на ноде. [Настройка Telegram](docs/TELEGRAM.md)
+- **Проверить доступность нод.** Statusboard показывает состояние по данным панели или выполняет запрос через VPN с отдельного клиента. [Настройка Statusboard](statusboard/README.ru.md)
 
-```bash
-systemctl start archive-upload.service
-journalctl -u archive-upload.service -n 20
-```
+## Доступ к логам и проверки проекта
 
-## Дашборды и расследования
+Журналы доступа Xray могут содержать IP-адреса клиентов, адреса назначения и числовые ID аккаунтов. Ограничьте круг тех, кто может читать логи, настройте сроки хранения в Loki и архиве и держите закрытый ключ age за пределами коллектора. [Политика безопасности](SECURITY.md)
 
-- **Fleet overview** показывает логи по всему парку.
-- **Log search** фильтрует события по ноде, IP, ID пользователя или адресу назначения.
-- **CLI-отчёты** позволяют находить подключения за выбранный период. Поиск аккаунтов поддерживает Remnawave 2.x и 3.x.
-
-```bash
-/opt/logcollector/report/investigate.sh --from -24h --ip 203.0.113.7
-/opt/logcollector/report/investigate.sh --from -7d --user 42
-```
-
-## Оповещения в Telegram
-
-- [Руководство по проверке доставки логов](docs/LOG-DELIVERY.md) показывает, как проверять контрольную запись каждой ноды в Loki независимо от пользовательского трафика.
-- [Руководство по Telegram](docs/TELEGRAM.md) содержит примеры сообщений, опциональное правило Grafana для всплесков `error.log` по нодам, шаблон уведомления и процедуру проверки.
-
-## Проверки и обновление
-
-CI проверяет синтаксис Bash, архиватор, конфигурацию и установку коллектора и агента на Linux с нуля. Проверяется доставка по TLS в Loki, наличие дашбордов Grafana, шифрование и расшифровка локального архива. Работу с реальными S3 и Google Drive и миграцию существующей базы Grafana проверяйте отдельно. Актуальные ограничения описаны в [заметках к релизам](https://github.com/evi1argument/remnawave-log-service/releases).
-
-Перед обновлением сохраните конфигурацию, сертификаты, очередь архива и тома. Установщики генерируют конфигурацию заново. Для действующей установки следуйте руководству по обновлению.
-
-```bash
-sudo python3 -m unittest discover -s tests -v
-bash scripts/check-configs.sh
-sudo python3 tests/smoke_stack.py
-```
-
-Для тестов нужны Linux, Docker, Python 3, OpenSSL, `age`, `psmisc` и `util-linux`. Тест стека использует временные данные и приватную сеть Docker.
-
-- [Установка](docs/INSTALLATION.md)
-- [Обновление и откат](docs/UPGRADING.md)
-- [CLI-отчёты и поиск аккаунтов](report/README.md)
-- [Политика безопасности](SECURITY.md) · [Лицензия MIT](LICENSE)
-
-## Карта репозитория
-
-| Каталог | Содержимое |
-| --- | --- |
-| [`collector/`](collector/) | Loki, Grafana, Vector, архиватор и службы systemd |
-| [`node/`](node/) | Агент Vector и ротация журналов Xray |
-| [`report/`](report/) | Отчёты о подключениях и поиск аккаунтов |
-| [`scripts/`](scripts/) | TLS, firewall, выгрузка архива и проверка конфигурации |
-| [`statusboard/`](statusboard/) | Сборщик доступности и сквозные VPN-пробы |
-| [`tests/`](tests/) | Регрессионные и интеграционные тесты |
-| [`docs/`](docs/) | Руководства по установке, обновлению и эксплуатации |
+Linux CI проверяет доставку логов по TLS, дашборды Grafana и запись и расшифровку локального архива. Доступ к S3 или Google Drive и миграцию существующей базы Grafana проверяйте на своей установке. [Релизы](https://github.com/evi1argument/remnawave-log-service/releases)
