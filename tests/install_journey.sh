@@ -68,11 +68,11 @@ fi
 # Exercise the shipped systemd producer against the dedicated collector.
 install -m 0644 node/systemd/log-service-canary.{service,timer} /etc/systemd/system/
 systemctl daemon-reload
+systemctl start log-service-canary.timer
+systemctl is-active --quiet log-service-canary.timer
 systemctl start log-service-canary.service
 canary_file=/var/log/remnanode/log-service-canary.log
-canary_line="$(cat "$canary_file")"
-[[ "$canary_line" =~ ^log-service-canary\ ([0-9]{10})$ ]]
-canary_ns="${BASH_REMATCH[1]}000000000"
+grep -Ex 'log-service-canary [0-9]{10}' "$canary_file" >/dev/null
 canary_start="$(date -d '1 minute ago' +%s%N)"
 canary_selector='{service="log-service",node="journey",stream="canary"}'
 query_canary() {
@@ -81,16 +81,22 @@ query_canary() {
     --data-urlencode "query=$canary_selector" http://127.0.0.1:3100/loki/api/v1/query_range
 }
 canary_found=false
-for attempt in $(seq 1 30); do
-  if query_canary | jq -e --arg line "$canary_line" --arg ns "$canary_ns" \
-        'any(.data.result[]?.values[]?; . == [$ns, $line])' >/dev/null; then
+for attempt in $(seq 1 55); do
+  if query_canary | jq -e --rawfile produced "$canary_file" '
+      any(.data.result[]?.values[]?;
+        . as [$ns, $line] | ($produced | split("\n") | index($line)) != null
+        and ($line | test("^log-service-canary [0-9]{10}$"))
+        and $ns == (($line | split(" ")[1]) + "000000000")
+      )' >/dev/null; then
     canary_found=true; break
   fi
   sleep 2
 done
+systemctl stop log-service-canary.timer
 if ! "$canary_found"; then
   echo 'Control record did not reach Loki with its source timestamp' >&2
-  printf 'Expected %s at %s\n' "$canary_line" "$canary_ns" >&2
+  cat "$canary_file" >&2
+  journalctl -u log-service-canary.service --no-pager -n 20 >&2
   query_canary | jq -c '{status,streams:.data.result}' >&2 || true
   docker logs --tail 40 logship-vector
   docker logs --tail 40 logcollector-vector
