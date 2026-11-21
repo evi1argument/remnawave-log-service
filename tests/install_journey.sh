@@ -7,13 +7,14 @@ for path in /opt/logcollector /opt/logship /var/log/remnanode; do
   test ! -e "$path" || { echo "Refusing to use existing $path" >&2; exit 1; }
 done
 
-export GF_ADMIN_PASSWORD=user-journey-test-only
 export COLLECTOR_ADDRESS="$(hostname -I | awk '{print $1}')"
-export COLLECTOR_NODE=- BACKEND=local ENCRYPT=age CADENCE=weekly
 age-keygen -o /tmp/log-service-journey.age
-export AGE_PUBKEY="$(age-keygen -y /tmp/log-service-journey.age)"
-export LOCAL_DIR='/opt/logcollector/test archive' LOCAL_RETENTION_DAYS=10
-bash collector/install-collector.sh
+AGE_PUBKEY="$(age-keygen -y /tmp/log-service-journey.age)"
+LOCAL_DIR=/opt/logcollector/archive/store
+printf '%s\n' "$COLLECTOR_ADDRESS" weekly 10 "$AGE_PUBKEY" n | bash install.sh collector
+test ! -e /opt/logcollector
+printf '%s\n' "$COLLECTOR_ADDRESS" weekly 10 "$AGE_PUBKEY" y | bash install.sh collector
+GF_ADMIN_PASSWORD="$(sed -n 's/^GF_ADMIN_PASSWORD=//p' /opt/logcollector/.env)"
 curl -fsS --retry 15 --retry-all-errors --retry-delay 2 http://127.0.0.1:3100/ready
 curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -u "admin:$GF_ADMIN_PASSWORD" http://127.0.0.1:3000/api/search |
   python3 -c 'import json,sys; assert sum(d.get("type")=="dash-db" for d in json.load(sys.stdin))==2'
@@ -24,9 +25,9 @@ touch /var/log/remnanode/error.log
 if COLLECTOR_CERT=/tmp/nonexistent bash node/install-node.sh rejected "$COLLECTOR_ADDRESS"; then
   echo 'Installed an agent without a trust certificate' >&2; exit 1
 fi
-COLLECTOR_CERT=/opt/logcollector/vector/tls/cert.pem bash node/install-node.sh journey "$COLLECTOR_ADDRESS"
+printf '%s\n' journey "$COLLECTOR_ADDRESS" /opt/logcollector/vector/tls/cert.pem да | bash install.sh --lang ru node
 AGENT_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' logship-vector)"
-bash /opt/logcollector/scripts/collector-add-node-fw.sh "$AGENT_IP"
+printf '%s\n' "$AGENT_IP" y | bash install.sh allow-node
 iptables -C LOGCOLLECTOR-6000 -s "$AGENT_IP/32" -j ACCEPT
 iptables -C LOGCOLLECTOR-6000 -j DROP
 systemctl is-active --quiet collector-firewall.service archive-upload.timer

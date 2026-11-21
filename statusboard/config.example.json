@@ -1,0 +1,15 @@
+{
+  "source": "control_plane",
+  "series_revision": 1,
+  "panel_adapter": "/opt/remnawave-statusboard-v2/adapter.py",
+  "private_dir": "/var/lib/remnawave-statusboard-v2",
+  "public_json": "/var/lib/remnawave-statusboard-v2/status-candidate.json",
+  "panel_url": "http://127.0.0.1:3000/api/nodes",
+  "probe_cache": "/var/lib/remnawave-statusboard-v2/vpn-probes.json",
+  "locations": {
+    "NL": "Netherlands",
+    "DE": "Germany"
+  },
+  "routes": {},
+  "maintenance": []
+}

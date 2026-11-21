@@ -15,64 +15,65 @@
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"      # .../collector
 REPO="$(cd "$SRC/.." && pwd)"
+source "$REPO/scripts/installer-language.sh"
 DST=/opt/logcollector
 
 ask(){ local v="$1" p="$2" def="${3:-}"; if [ -z "${!v:-}" ]; then read -rp "$p${def:+ [$def]}: " x; printf -v "$v" '%s' "${x:-$def}"; fi; }
 
-echo "== prereqs =="
-docker compose version >/dev/null || { echo "Install Docker Engine and the Compose plugin first" >&2; exit 1; }
+echo "$(loc '== prereqs ==' '== Зависимости ==')"
+docker compose version >/dev/null || { echo "$(loc 'Install Docker Engine and the Compose plugin first' 'Сначала установите Docker Engine и плагин Compose')" >&2; exit 1; }
 command -v openssl >/dev/null || apt-get install -y openssl
 apt-get install -y psmisc util-linux iptables curl jq
 apt-get install -y ca-certificates >/dev/null 2>&1 || true; update-ca-certificates >/dev/null 2>&1 || true
 
 if [ -z "${GF_ADMIN_PASSWORD:-}" ]; then
-  read -rsp "Grafana admin password (empty = generate): " GF_ADMIN_PASSWORD
+  read -rsp "$(loc 'Grafana admin password (blank to generate)' 'Пароль Grafana (пусто для генерации)'): " GF_ADMIN_PASSWORD
   printf '\n'
   if [ -z "$GF_ADMIN_PASSWORD" ]; then
     GF_ADMIN_PASSWORD="$(openssl rand -hex 24)"
   fi
 fi
 if [[ ! "$GF_ADMIN_PASSWORD" =~ ^[a-zA-Z0-9_.@%+=:/-]{16,}$ ]]; then
-  echo "Use at least 16 characters from A–Z, a–z, 0–9 or _.@%+=:/-" >&2
+  echo "$(loc 'Use at least 16 characters from A–Z, a–z, 0–9 or _.@%+=:/-' 'Введите не менее 16 символов из A–Z, a–z, 0–9 или _.@%+=:/-')" >&2
   exit 1
 fi
-ask COLLECTOR_NODE   "Метка коллектора в логах (напр. collector; '-' если не VPN-нода)" "collector"
-ask BACKEND          "Бэкенд архива: s3 | gdrive | local" "s3"
-ask ENCRYPT          "Шифровать архив age? (age/none)" "age"
-ask CADENCE          "Как часто заливать: hourly | daily | weekly" "weekly"
-[[ "$COLLECTOR_NODE" == "-" || "$COLLECTOR_NODE" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]] || { echo "Invalid COLLECTOR_NODE" >&2; exit 1; }
-case "$ENCRYPT" in age|none) ;; *) echo "Invalid ENCRYPT" >&2; exit 1;; esac
-case "$CADENCE" in hourly|daily|weekly) ;; *) echo "Invalid CADENCE" >&2; exit 1;; esac
+ask COLLECTOR_NODE   "$(loc 'Collector log label (use - for a dedicated collector)' "Метка коллектора в логах (напр. collector; '-' если не VPN-нода)")" "collector"
+ask BACKEND          "$(loc 'Archive backend: s3 | gdrive | local' "Бэкенд архива: s3 | gdrive | local")" "s3"
+ask ENCRYPT          "$(loc 'Archive encryption: age | none' "Шифровать архив age? (age/none)")" "age"
+ask CADENCE          "$(loc 'Archive interval: hourly | daily | weekly' "Как часто заливать: hourly | daily | weekly")" "weekly"
+[[ "$COLLECTOR_NODE" == "-" || "$COLLECTOR_NODE" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]] || { echo "$(loc 'Invalid COLLECTOR_NODE' 'Некорректное значение COLLECTOR_NODE')" >&2; exit 1; }
+case "$ENCRYPT" in age|none) ;; *) echo "$(loc 'Invalid ENCRYPT' 'Некорректное значение ENCRYPT')" >&2; exit 1;; esac
+case "$CADENCE" in hourly|daily|weekly) ;; *) echo "$(loc 'Invalid CADENCE' 'Некорректное значение CADENCE')" >&2; exit 1;; esac
 
 if [ "$ENCRYPT" = "age" ]; then
   command -v age >/dev/null || apt-get install -y age
-  ask AGE_PUBKEY "age public key архива (age1...)"
+  ask AGE_PUBKEY "$(loc 'Archive age public key (age1...)' "age public key архива (age1...)")"
 fi
 
 case "$BACKEND" in
   s3)
-    ask S3_ENDPOINT   "S3 endpoint (свой провайдер)" "https://s3.us-east-1.amazonaws.com"
+    ask S3_ENDPOINT   "$(loc 'S3 endpoint' "S3 endpoint (свой провайдер)")" "https://s3.us-east-1.amazonaws.com"
     ask S3_BUCKET     "S3 bucket" "remnawave-logs"
     ask S3_REGION     "S3 region" "us-east-1"
     ask S3_ACCESS_KEY "S3 access key"
     if [ -z "${S3_SECRET_KEY:-}" ]; then
-      read -rsp "S3 secret key: " S3_SECRET_KEY
+      read -rsp "$(loc 'S3 secret key' 'Секретный ключ S3'): " S3_SECRET_KEY
       printf '\n'
     fi
     [[ "$S3_ENDPOINT" == https://* && "$S3_ACCESS_KEY" =~ ^[a-zA-Z0-9_.@+=:/-]+$ &&
        "$S3_SECRET_KEY" =~ ^[a-zA-Z0-9_.@+=:/-]+$ && "$S3_REGION" =~ ^[a-zA-Z0-9-]+$ ]] ||
-      { echo "Use an HTTPS S3 endpoint and valid S3 credentials/region" >&2; exit 1; } ;;
+      { echo "$(loc 'Use an HTTPS S3 endpoint and valid S3 credentials/region' 'Укажите HTTPS-адрес S3 и допустимые реквизиты и регион')" >&2; exit 1; } ;;
   gdrive)
     command -v rclone >/dev/null || apt-get install -y rclone
-    echo "  ! настрой remote заранее: rclone config (тип drive)"
-    ask RCLONE_REMOTE "rclone remote:path" "gdrive:remnawave-logs" ;;
+    echo "$(loc 'Configure a Drive remote first with rclone config.' 'Сначала настройте remote типа drive через rclone config.')"
+    ask RCLONE_REMOTE "$(loc 'rclone remote:path' "rclone remote:path")" "gdrive:remnawave-logs" ;;
   local)
-    ask LOCAL_DIR             "Каталог архива на коллекторе" "$DST/archive/store"
-    ask LOCAL_RETENTION_DAYS  "Retention локально, дней (0=не чистить)" "180" ;;
-  *) echo "неизвестный BACKEND '$BACKEND'"; exit 1 ;;
+    ask LOCAL_DIR             "$(loc 'Local archive directory' "Каталог архива на коллекторе")" "$DST/archive/store"
+    ask LOCAL_RETENTION_DAYS  "$(loc 'Local retention in days (0 keeps all archives)' "Retention локально, дней (0=не чистить)")" "180" ;;
+  *) echo "$(loc "Unsupported backend: $BACKEND" "Неизвестный тип архива: $BACKEND")"; exit 1 ;;
 esac
 
-echo "== выкладка $DST =="
+echo "$(loc "== Installing to $DST ==" "== Установка в $DST ==")"
 mkdir -p "$DST"
 cp -r "$SRC/loki" "$SRC/grafana" "$SRC/vector" "$SRC/archive" "$DST/"
 mkdir -p "$DST/vector/tls" "$DST/spool" "$DST/secrets" "$DST/report"
@@ -123,14 +124,14 @@ systemctl enable --now collector-firewall.service
 # Apply even when the oneshot unit is already active. Fail before publishing 6000.
 "$DST/scripts/collector-firewall-apply.sh"
 
-echo "== validate and up =="
+echo "$(loc '== validate and up ==' '== Проверка и запуск ==')"
 ( cd "$DST" && docker compose config --quiet && \
   docker compose run --rm --no-deps --volume /vector-data vector validate --skip-healthchecks /etc/vector/vector.yaml && \
   docker compose up -d loki && \
   curl -fsS --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 --noproxy '*' http://127.0.0.1:3100/ready && \
   docker compose up -d )
 
-echo "== systemd архивный аплоадер ($CADENCE) =="
+echo "$(loc "== Archive timer ($CADENCE) ==" "== Таймер архива ($CADENCE) ==")"
 case "$CADENCE" in
   hourly) OC="hourly" ;;
   daily)  OC="*-*-* 04:00:00" ;;
@@ -162,17 +163,13 @@ SELF_IP="${COLLECTOR_ADDRESS:-$(hostname -I | awk '{print $1}')}"
 [[ "$SELF_IP" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || SELF_IP="<COLLECTOR_ADDRESS>"
 printf 'COLLECTOR_CERT=./collector.crt COLLECTOR_IP=%s ./install-node.sh <NODE_NAME>\n' "$SELF_IP" > "$DST/node-install.txt"
 
-cat <<EOF
-
-== ГОТОВО (backend=$BACKEND, encrypt=$ENCRYPT, cadence=$CADENCE) ==
-  Grafana:  ssh -L 3000:127.0.0.1:3000 root@<этот_хост>  ->  http://127.0.0.1:3000 (admin / \$GF_ADMIN_PASSWORD)
-  Пароль Grafana: $DST/.env (доступен только root).
-  Ноды:     Сначала скопируйте $DST/vector/tls/cert.pem на ноду через доверенный SSH под именем collector.crt.
-            IP этого коллектора определён автоматически: $SELF_IP
-            на каждой ноде (из каталога node/):  COLLECTOR_CERT=./collector.crt COLLECTOR_IP=$SELF_IP ./install-node.sh <NODE_NAME>
-            (эта же готовая команда сохранена в $DST/node-install.txt)
-            install-node сам напечатает firewall-команду с IP ноды — её выполнить здесь, на коллекторе.
-  Тест архива сейчас:  systemctl start archive-upload.service ; journalctl -u archive-upload.service -n 20 -o cat
-$([ "$BACKEND" = s3 ] && echo "  S3: бакет создать С Object Lock+Versioning; сузить политику до сервисного юзера; COMPLIANCE = APPLY_COMPLIANCE=yes")
-$([ "$BACKEND" = local ] && echo "  Забирать на ПК:  scripts/pull-to-pc.sh root@<этот_хост>")
-EOF
+printf '\n%s\n' "$(loc "== Collector ready ($BACKEND, $ENCRYPT, $CADENCE) ==" "== Коллектор готов ($BACKEND, $ENCRYPT, $CADENCE) ==")"
+printf '%s\n' "$(loc "Open Grafana with an SSH tunnel:" "Откройте Grafana через SSH-туннель:")"
+printf '  ssh -N -L 3000:127.0.0.1:3000 root@%s\n' "$SELF_IP"
+printf '%s\n' "$(loc "Grafana is at http://127.0.0.1:3000. Read the admin password from $DST/.env." "Grafana доступна на http://127.0.0.1:3000. Пароль admin хранится в $DST/.env.")"
+printf '%s\n' "$(loc "Copy the collector certificate over trusted SSH. Node command: $DST/node-install.txt." "Скопируйте сертификат через доверенное SSH. Команда установки ноды: $DST/node-install.txt.")"
+printf '%s\n' "$(loc 'To test archiving, start archive-upload.service and check its journal.' 'Для проверки архивации запустите archive-upload.service и посмотрите его журнал.')"
+case "$BACKEND" in
+  s3) printf '%s\n' "$(loc 'For immutable retention, configure Object Lock and versioning in the bucket.' 'Для неизменяемого хранения настройте Object Lock и версионирование бакета.')" ;;
+  local) printf '%s\n' "$(loc 'To retrieve local archives over SSH, use scripts/pull-to-pc.sh.' 'Для выгрузки локальных архивов по SSH используйте scripts/pull-to-pc.sh.')" ;;
+esac

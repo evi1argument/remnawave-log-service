@@ -1,0 +1,15 @@
+[Unit]
+Description=Measure Remnawave routes via dedicated local SOCKS clients
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+StateDirectory=remnawave-statusboard-probe
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=110
+ExecStart=/usr/bin/python3 /opt/remnawave-statusboard-v2/probe.py --config /etc/remnawave-statusboard-probe.json

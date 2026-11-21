@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Remnawave at fixed quarter-hour boundaries
+
+[Timer]
+OnCalendar=*-*-* *:00,15,30,45:20 UTC
+AccuracySec=5s
+Unit=remnawave-status-collect.service
+
+[Install]
+WantedBy=timers.target

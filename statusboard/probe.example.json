@@ -1,0 +1,10 @@
+{
+  "verifier": "https://www.cloudflare.com/cdn-cgi/trace",
+  "probe_cache": "/var/lib/remnawave-statusboard-probe/vpn-probes.json",
+  "routes": {
+    "exampleprobe001": {
+      "port": 10881,
+      "expected_egress": ["192.0.2.10"]
+    }
+  }
+}

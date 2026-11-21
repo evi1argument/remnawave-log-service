@@ -1,0 +1,16 @@
+[Unit]
+Description=Collect and publish Remnawave status
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+StateDirectory=remnawave-statusboard-v2
+StateDirectoryMode=0700
+UMask=0077
+EnvironmentFile=/etc/remnawave-statusboard.env
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=45
+ExecStart=/usr/bin/python3 /opt/remnawave-statusboard-v2/statusboard.py collect --config /etc/remnawave-statusboard-v2.json
