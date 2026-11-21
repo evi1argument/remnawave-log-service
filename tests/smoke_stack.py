@@ -12,6 +12,8 @@ import uuid
 
 REPO = Path(__file__).resolve().parents[1]
 ENV = dict(os.environ, GF_ADMIN_PASSWORD='smoke-only-password')
+VECTOR_TEST_LOG = ('info,vector_buffers::variants::disk_v2=debug,'
+                   'vector::internal_events::http_client=debug')
 
 
 def docker(*args):
@@ -81,11 +83,12 @@ def main():
                             mount(REPO / 'collector/loki/loki-config.yaml', '/etc/loki/config.yaml', True)
                             + mount(work / 'loki', '/loki'), ['-config.file=/etc/loki/config.yaml'])
             wait_for(lambda: get(f'http://{loki_ip}:3100/ready') == b'ready\n', 'Loki readiness')
-            start('collector', config['vector']['image'], ['--user', '0']
+            vector_options = ['--user', '0', '-e', f'VECTOR_LOG={VECTOR_TEST_LOG}']
+            start('collector', config['vector']['image'], vector_options
                   + mount(work / 'aggregator.yaml', '/etc/vector/vector.yaml', True)
                   + mount(work / 'tls', '/tls', True) + mount(work / 'aggregator', '/vector-data')
                   + mount(work / 'spool', '/spool') + mount(work / 'self', '/self-logs', True))
-            start('agent', config['vector']['image'], ['--user', '0']
+            start('agent', config['vector']['image'], vector_options
                   + mount(work / 'agent.yaml', '/etc/vector/vector.yaml', True)
                   + mount(work / 'tls/cert.pem', '/tls/collector.crt', True)
                   + mount(work / 'agent', '/vector-data')
@@ -119,7 +122,7 @@ def main():
                 canary = f'log-service-canary {marker_epoch}'
                 expected[node] = {(str(marker_epoch * 10**9), canary)}
                 lines = canary + '\n'
-                if directory == 'logs':
+                if directory == 'self':
                     lines += 'invalid marker\n'
                 (work / directory / 'log-service-canary.log').write_text(lines)
 
@@ -167,7 +170,7 @@ def main():
             print('SMOKE OK: Xray logs reach Loki and spool; canaries reach only Loki; Grafana healthy')
     except Exception:
         for name in containers:
-            subprocess.run(['docker', 'logs', '--tail', '35', name], check=False)
+            subprocess.run(['docker', 'logs', '--tail', '120', name], check=False)
         raise
     finally:
         for name in reversed(containers):
