@@ -20,8 +20,7 @@ curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -u "admin:$GF_ADMIN_PASS
   python3 -c 'import json,sys; assert sum(d.get("type")=="dash-db" for d in json.load(sys.stdin))==2'
 
 mkdir -m 0755 /var/log/remnanode
-printf 'synthetic-user-journey-marker\n' > /var/log/remnanode/access.log
-touch /var/log/remnanode/error.log
+touch /var/log/remnanode/{access,error}.log
 if COLLECTOR_CERT=/tmp/nonexistent bash node/install-node.sh rejected "$COLLECTOR_ADDRESS"; then
   echo 'Installed an agent without a trust certificate' >&2; exit 1
 fi
@@ -40,6 +39,7 @@ start_ns="$(date -d '1 minute ago' +%s%N)"
 # after authorizing it, rather than racing the first connect during DROP.
 docker restart logship-vector >/dev/null
 test "$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' logship-vector)" = "$AGENT_IP"
+printf '%s\n' "$marker" >> /var/log/remnanode/access.log
 found=false
 for attempt in $(seq 1 60); do
   if curl -fsSG --noproxy '*' --max-time 5 -H 'Cache-Control: no-cache' \
@@ -73,12 +73,16 @@ canary_file=/var/log/remnanode/log-service-canary.log
 canary_line="$(cat "$canary_file")"
 [[ "$canary_line" =~ ^log-service-canary\ ([0-9]{10})$ ]]
 canary_ns="${BASH_REMATCH[1]}000000000"
+canary_start="$(date -d '1 minute ago' +%s%N)"
+canary_selector='{service="log-service",node="journey",stream="canary"}'
+query_canary() {
+  curl -fsSG --noproxy '*' --max-time 5 -H 'Cache-Control: no-cache' \
+    --data-urlencode "start=$canary_start" --data-urlencode "end=$(date +%s%N)" \
+    --data-urlencode "query=$canary_selector" http://127.0.0.1:3100/loki/api/v1/query_range
+}
 canary_found=false
 for attempt in $(seq 1 30); do
-  if curl -fsSG --noproxy '*' --max-time 5 \
-    --data-urlencode 'query={service="log-service",node="journey",stream="canary"}' \
-    http://127.0.0.1:3100/loki/api/v1/query_range |
-      jq -e --arg line "$canary_line" --arg ns "$canary_ns" \
+  if query_canary | jq -e --arg line "$canary_line" --arg ns "$canary_ns" \
         'any(.data.result[]?.values[]?; . == [$ns, $line])' >/dev/null; then
     canary_found=true; break
   fi
@@ -86,16 +90,21 @@ for attempt in $(seq 1 30); do
 done
 if ! "$canary_found"; then
   echo 'Control record did not reach Loki with its source timestamp' >&2
+  printf 'Expected %s at %s\n' "$canary_line" "$canary_ns" >&2
+  query_canary | jq -c '{status,streams:.data.result}' >&2 || true
   docker logs --tail 40 logship-vector
   docker logs --tail 40 logcollector-vector
   exit 1
 fi
+# Close both producers before checking the complete spool and exercising the archive.
+for container in logship-vector logcollector-vector; do
+  docker stop --time 70 "$container" >/dev/null
+  test "$(docker inspect -f '{{.State.ExitCode}}' "$container")" -eq 0
+done
 if grep -Rqs '^log-service-canary ' /opt/logcollector/spool; then
   echo 'Control record reached the raw archive queue' >&2
   exit 1
 fi
-# Stop the synthetic writer before aging its file and exercising the real timer service.
-docker stop logcollector-vector >/dev/null
 find /opt/logcollector/spool/journey -type f -name '*.log' -exec touch -d '2 hours ago' {} +
 systemctl start archive-upload.service
 segment="$(find "$LOCAL_DIR" -name '*.age' -print -quit)"
