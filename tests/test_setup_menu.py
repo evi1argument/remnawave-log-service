@@ -16,6 +16,7 @@ class SetupMenuTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Install a collector", result.stdout)
         self.assertIn("Set up availability monitoring", result.stdout)
+        self.assertIn("Configure Telegram alerts", result.stdout)
         self.assertIn("SERVER", result.stdout)
         self.assertNotIn("\x1b", result.stdout)
 
@@ -31,6 +32,7 @@ class SetupMenuTest(unittest.TestCase):
         result = self.run_menu("--help")
         self.assertEqual(result.returncode, 0)
         self.assertIn("respective hosts", result.stdout)
+        self.assertIn("notify status|test|disable", result.stdout)
 
     def test_version_matches_the_release_file(self):
         root = Path(__file__).resolve().parents[1]
@@ -93,7 +95,7 @@ class SetupMenuTest(unittest.TestCase):
             self.assertNotIn(b"Loki, Grafana, archive", buffer)
             os.write(master, b"L")
             wait_for("Enter Открыть".encode())
-            os.write(master, b"\x1b[A\n")
+            os.write(master, b"\x1b[A\x1b[A\n")
             wait_for("Диагностика".encode())
             self.assertIn(b"\x1b[?1049l", buffer)
             self.assertEqual(process.wait(timeout=5), 0)

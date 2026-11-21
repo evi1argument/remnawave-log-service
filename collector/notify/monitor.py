@@ -166,11 +166,15 @@ class Telegram:
 
 def card(language, title, opened, recovered=None):
     fmt = '%Y-%m-%d %H:%M UTC'
-    date = lambda stamp: datetime.fromtimestamp(stamp, timezone.utc).strftime(fmt)
+
+    def date(stamp):
+        return datetime.fromtimestamp(stamp, timezone.utc).strftime(fmt)
+
     status = localized(language, 'Alert', 'Тревога')
     if recovered is not None:
         status = localized(language, 'Recovered', 'Восстановлено')
-    lines = [f'<b>{status} · {html.escape(title)}</b>',
+    lines = [f'<b>{status}</b>',
+             html.escape(title),
              f'{localized(language, "Started", "Начало")} {date(opened)}']
     if recovered is not None:
         duration = max(0, int(recovered - opened) // 60)
@@ -344,7 +348,10 @@ def configure(path, language):
     if not os.isatty(0):
         raise ValueError('Run interactive setup from a terminal')
     previous = read_json(path, {})
-    tr = lambda en, ru: localized(language, en, ru)
+
+    def tr(en, ru):
+        return localized(language, en, ru)
+
     token_prompt = tr('Bot token', 'Токен бота')
     if previous.get('token'):
         token_prompt += tr(' (Enter to keep)', ' (Enter — сохранить текущий)')
