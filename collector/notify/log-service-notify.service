@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Remnawave Log Service and send Telegram alerts
+After=network-online.target docker.service
+ConditionPathExists=/opt/logcollector/notify/config.json
+
+[Service]
+Type=oneshot
+UMask=0077
+StateDirectory=log-service-notify
+StateDirectoryMode=0700
+ExecStart=/usr/bin/flock -n /run/lock/log-service-notify.lock /usr/bin/python3 /opt/logcollector/notify/monitor.py run
+TimeoutStartSec=110

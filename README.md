@@ -53,7 +53,7 @@ For S3 or Google Drive, follow the [manual installation guide (RU)](docs/INSTALL
 
 - **Search Xray logs.** Use **Fleet overview** to see activity by node and **Log search** to filter by node, IP address, user ID, or destination. The command-line report supports account lookup on Remnawave 2.x and 3.x. [Report examples (RU)](report/README.md)
 - **Check log delivery.** Each enabled node can write a test line once a minute. Query Loki to see which nodes are still sending records, even when nobody is connected to the VPN. [Log delivery setup (RU)](docs/LOG-DELIVERY.md)
-- **Send error alerts to Telegram.** Configure Grafana to alert when a node writes an unusual number of lines to `error.log`. [Telegram setup (RU)](docs/TELEGRAM.md)
+- **Send alerts to Telegram.** On the collector, run `sudo bash install.sh notify` from a checkout that includes `collector/notify/`. Select the checks you want and enter the destination chat. [Telegram setup (RU)](docs/TELEGRAM.md)
 - **Check node availability.** Statusboard can report what the panel sees or run an actual VPN request from a separate client. [Statusboard setup](statusboard/README.md)
 
 ## Log access and project checks

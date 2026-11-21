@@ -21,6 +21,8 @@ status_dir=/opt/remnawave-statusboard-v2
 status_config=/etc/remnawave-statusboard-v2.json
 status_env=/etc/remnawave-statusboard.env
 status_unit=remnawave-status-collect
+notify_dir="$collector/notify"
+notify_unit=log-service-notify
 
 accent='' blue='' orange='' muted='' bold='' reset='' danger='' prompt=''
 if [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]]; then
@@ -67,6 +69,8 @@ usage() {
   sudo bash install.sh --lang ru allow-node   Разрешить доступ ноды
   sudo bash install.sh --lang ru statusboard  Мониторинг доступности
   sudo bash install.sh --lang ru doctor       Диагностика
+  sudo bash install.sh --lang ru notify       Настроить уведомления Telegram
+  sudo bash install.sh --lang ru notify status|test|disable
 
 Коллектор и агент устанавливаются на своих серверах.
 Мониторинг доступности запускается на сервере с локальным API Remnawave.
@@ -82,6 +86,8 @@ Usage: Remnawave Log Service
   sudo bash install.sh allow-node   Allow a node on this collector
   sudo bash install.sh statusboard  Set up local availability monitoring
   sudo bash install.sh doctor       Check dependencies and services
+  sudo bash install.sh notify       Configure Telegram alerts
+  sudo bash install.sh notify status|test|disable
   sudo bash install.sh --lang ru    Open the menu in Russian
 
 Run the collector and node steps on their respective hosts.
@@ -300,6 +306,49 @@ menu_item() {
   printf '\n'
 }
 
+setup_notify() {
+  require_linux
+  local action="${1:-configure}"
+  case "$action" in
+    status)
+      if [[ -f "$notify_dir/config.json" ]]; then
+        systemctl is-active "$notify_unit.timer" || true
+        python3 "$notify_dir/monitor.py" status --lang "$INSTALL_LANG"
+      else
+        printf '%s\n' "$(loc 'Telegram alerts are not configured.' 'Уведомления Telegram не настроены.')"
+      fi ;;
+    test)
+      [[ -f "$notify_dir/config.json" ]] ||
+        { fail "$(loc 'Configure Telegram alerts first.' 'Сначала настройте уведомления Telegram.')"; return 1; }
+      python3 "$notify_dir/monitor.py" test --lang "$INSTALL_LANG" ;;
+    disable)
+      lock_install
+      if [[ -f "/etc/systemd/system/$notify_unit.timer" ]]; then
+        systemctl disable --now "$notify_unit.timer"
+        systemctl stop "$notify_unit.service"
+        rm -f -- /etc/systemd/system/archive-upload.service.d/50-log-service-notify.conf
+        systemctl daemon-reload
+      fi ;;
+    configure)
+      [[ -f "$collector/docker-compose.yml" ]] ||
+        { fail "$(loc 'Install the collector first.' 'Сначала установите коллектор.')"; return 1; }
+      lock_install
+      command -v python3 >/dev/null || apt-get install -y python3
+      install -d -m 0700 "$notify_dir"
+      python3 "$repo/collector/notify/monitor.py" configure --lang "$INSTALL_LANG"
+      install -m 0700 "$repo/collector/notify/monitor.py" "$notify_dir/monitor.py"
+      install -m 0644 "$repo/collector/notify/$notify_unit.service" \
+        "$repo/collector/notify/$notify_unit.timer" /etc/systemd/system/
+      install -d -m 0755 /etc/systemd/system/archive-upload.service.d
+      install -m 0644 "$repo/collector/notify/archive-success.conf" \
+        /etc/systemd/system/archive-upload.service.d/50-log-service-notify.conf
+      systemctl daemon-reload
+      systemctl enable --now "$notify_unit.timer"
+      printf '%s\n' "$(loc 'Telegram alerts configured. Use notify test to send a test message.' 'Уведомления настроены. Команда notify test отправляет тестовое сообщение.')" ;;
+    *) usage >&2; return 2 ;;
+  esac
+}
+
 setup_menu() {
   banner "$(loc 'Setup' 'Установка')"
   section "$(loc 'SERVER' 'СЕРВЕР')"
@@ -313,6 +362,7 @@ setup_menu() {
   menu_item 3 "$(loc 'Allow a node' 'Разрешить доступ ноды')" "$(loc 'Add an IPv4 address' 'Добавить IPv4 в список доступа')"
   menu_item 4 "$(loc 'Set up availability monitoring' 'Настроить мониторинг')" "$(loc 'Publish a status feed' 'Собирать статусы доступности')"
   menu_item 5 "$(loc 'Check this server' 'Проверить сервер')" "$(loc 'Dependencies and services' 'Зависимости и службы')"
+  menu_item 6 "$(loc 'Configure Telegram alerts' 'Настроить Telegram')" "$(loc 'Select checks and destination' 'Выбрать проверки и чат')"
   if [[ -z "${menu_focus:-}" ]]; then
     menu_item L "$(loc 'Language · Русский' 'Язык · English')" ''
     menu_item 0 "$(loc 'Exit' 'Выход')" ''
@@ -339,14 +389,14 @@ terminal_menu() {
     case "$key" in
       '') choice="$menu_focus"; break ;;
       0|q|Q) choice=0; break ;;
-      [1-5]) menu_focus="$key" ;;
+      [1-6]) menu_focus="$key" ;;
       l|L|л|Л|д|Д) switch_language ;;
       $'\033')
         tail=''
         IFS= read -rsn2 -t .15 tail || true
         case "$tail" in
-          '[A'|'OA') menu_focus=$(( (menu_focus + 3) % 5 + 1 )) ;;
-          '[B'|'OB') menu_focus=$(( menu_focus % 5 + 1 )) ;;
+          '[A'|'OA') menu_focus=$(( (menu_focus + 4) % 6 + 1 )) ;;
+          '[B'|'OB') menu_focus=$(( menu_focus % 6 + 1 )) ;;
           '') choice=0; break ;;
         esac ;;
     esac
@@ -378,7 +428,7 @@ doctor() {
   fi
   if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
     section "$(loc 'SERVICES' 'СЛУЖБЫ')"
-    for unit in collector-firewall.service archive-upload.timer "$status_unit.timer"; do
+    for unit in collector-firewall.service archive-upload.timer "$status_unit.timer" "$notify_unit.timer"; do
       local state
       state="$(systemctl is-active "$unit" 2>/dev/null)" || true
       case "$state" in
@@ -401,6 +451,7 @@ case "${1:-menu}" in
   node) install_node ;;
   allow-node) allow_node ;;
   statusboard) install_statusboard ;;
+  notify) setup_notify "${2:-configure}" ;;
   menu)
     if [[ -t 0 && -n "$accent" ]]; then
       terminal_menu
@@ -409,9 +460,9 @@ case "${1:-menu}" in
         setup_menu
         choice="$(ask "$(loc 'Choose an action' 'Выберите действие')")" || exit 0
         case "$choice" in
-          [0-5]|'') break ;;
+          [0-6]|'') break ;;
           l|L|л|Л|д|Д) switch_language ;;
-          *) fail "$(loc 'Choose a number from 0 to 5, or L.' 'Выберите число от 0 до 5 или L.')" || true ;;
+          *) fail "$(loc 'Choose a number from 0 to 6, or L.' 'Выберите число от 0 до 6 или L.')" || true ;;
         esac
       done
     fi
@@ -421,6 +472,7 @@ case "${1:-menu}" in
       3) allow_node ;;
       4) install_statusboard ;;
       5) doctor ;;
+      6) setup_notify ;;
     esac ;;
   *) usage >&2; exit 2 ;;
 esac
